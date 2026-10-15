@@ -2,7 +2,7 @@
 import * as S from './schedule.js';
 import { store, sb, putSettings, exportData, importData, clearLocal, pendingCount } from './store.js';
 import { icon } from './icons.js';
-import { esc, sheet, toast, confirmDialog, seg, bindSegs, sw, download } from './ui.js';
+import { esc, sheet, toast, confirmDialog, seg, bindSegs, sw, download, navBar, largeTitle, backBtn } from './ui.js';
 import { currentSemester } from './ctx.js';
 import { pushState, enablePush, disablePush, testPush, pushLog, deviceSubscribed } from './push.js';
 import { APP_VERSION } from './config.js';
@@ -15,7 +15,7 @@ export function setTheme(v) {
   const root = document.documentElement;
   if (v === 'auto') root.removeAttribute('data-theme'); else root.setAttribute('data-theme', v);
   const dark = v === 'dark' || (v === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#0a0f1a' : '#f2f3f8');
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#000000' : '#f2f2f7');
 }
 
 let subscribedCache = null;
@@ -27,67 +27,72 @@ export function renderSettings(el, rerender) {
   if (subscribedCache === null) deviceSubscribed().then((v) => { subscribedCache = v; rerender(); });
   const active = ps.permission === 'granted' && subscribedCache;
 
-  let pushBlock;
+  let pushRows, pushFoot;
   if (!ps.supported && ps.ios && !ps.standalone) {
-    pushBlock = `<div class="banner accent" style="align-items:flex-start">${icon('share')}<span><b>Erst zum Home-Bildschirm hinzufügen</b><br>Mitteilungen gehen auf dem iPhone nur, wenn Studyloop vom Home-Bildschirm geöffnet wird: In Safari auf <b>Teilen</b> tippen → <b>„Zum Home-Bildschirm“</b>. Dann von dort öffnen und hier erlauben.</span></div>`;
+    pushRows = `<div class="cell ic"><span class="sq gray">${icon('bellOff')}</span><span class="main"><span class="t">Mitteilungen</span></span><span class="v">Nicht verfügbar</span></div>`;
+    pushFoot = `Auf dem iPhone gibt es Mitteilungen nur, wenn Studyloop vom Home-Bildschirm geöffnet wird: In Safari auf Teilen tippen → „Zum Home-Bildschirm“, dann von dort öffnen.`;
   } else if (!ps.supported) {
-    pushBlock = `<div class="banner amber">${icon('alert')}<span>Dieser Browser unterstützt keine Mitteilungen.</span></div>`;
+    pushRows = `<div class="cell ic"><span class="sq gray">${icon('bellOff')}</span><span class="main"><span class="t">Mitteilungen</span></span><span class="v">Nicht unterstützt</span></div>`;
+    pushFoot = 'Dieser Browser unterstützt keine Mitteilungen.';
   } else if (ps.permission === 'denied') {
-    pushBlock = `<div class="banner red" style="align-items:flex-start">${icon('bellOff')}<span><b>Mitteilungen sind blockiert.</b><br>Erlaube sie in den iPhone-Einstellungen → <b>Mitteilungen</b> → <b>Studyloop</b>. Danach die App neu öffnen.</span></div>`;
+    pushRows = `<div class="cell ic"><span class="sq red">${icon('bellOff')}</span><span class="main"><span class="t">Mitteilungen</span></span><span class="v">Blockiert</span></div>`;
+    pushFoot = 'Erlaube sie in den iPhone-Einstellungen → Mitteilungen → Studyloop und öffne die App danach neu.';
   } else if (!active) {
-    pushBlock = `<button class="btn primary" data-act="pushOn">${icon('bell', 'sm')}Mitteilungen erlauben</button>`;
+    pushRows = `<button class="cell ic" data-act="pushOn"><span class="sq red">${icon('bell')}</span><span class="main"><span class="t accent-t">Mitteilungen erlauben</span></span></button>`;
+    pushFoot = 'Damit du vor Pflichtterminen, Fristen und Prüfungen erinnert wirst – auch wenn die App geschlossen ist.';
   } else {
-    pushBlock = `<div class="btn-row"><button class="btn" data-act="pushTest">${icon('send', 'sm')}Test senden</button><button class="btn" data-act="pushOff">Ausschalten</button></div>`;
+    pushRows = `<div class="cell ic"><span class="sq red">${icon('bell')}</span><span class="main"><span class="t">Mitteilungen</span></span><span class="v">An</span></div>
+      <button class="cell" data-act="pushTest"><span class="main"><span class="t accent-t">Test-Mitteilung senden</span></span></button>
+      <button class="cell" data-act="pushOff"><span class="main"><span class="t accent-t">Auf diesem Gerät ausschalten</span></span></button>`;
+    pushFoot = 'Kommt auch, wenn die App geschlossen ist.';
   }
 
-  el.innerHTML = `<div class="wrap">
-    <div class="topbar"><button class="back" data-act="back">${icon('left')}Zurück</button></div>
-    <h1 class="title-xl">Einstellungen</h1>
+  el.innerHTML = `
+    ${navBar({ title: 'Einstellungen', left: backBtn() })}
+    ${largeTitle('Einstellungen')}
+    <div class="wrap">
+    <div class="group" style="margin-top:8px">${pushRows}</div>
+    <div class="gf">${pushFoot}</div>
 
-    <div class="section-h"><h2>Mitteilungen</h2></div>
-    <div class="list">
-      <div class="row"><span class="ibox ${active ? 'green' : ''}">${icon(active ? 'bell' : 'bellOff')}</span><span class="main"><span class="t" style="display:block">Auf diesem Gerät</span>
-        <span class="s" style="display:block">${active ? 'Aktiv – auch wenn die App geschlossen ist' : ps.permission === 'denied' ? 'Blockiert' : 'Aus'}</span></span></div>
+    <div class="gh">Erinnern vor Pflichtterminen & Prüfungen</div>
+    <div class="group"><div class="cell"><div class="chips" style="flex:1">${OFFSETS.map((o) => `<button class="pill-toggle" data-act="offset" data-v="${o}" aria-pressed="${st.offsets.includes(o)}">${S.offsetLabel(o)}</button>`).join('')}</div></div></div>
+    <div class="gf">${st.offsets.length ? 'Erinnerung ' + st.offsets.map(S.offsetLabel).join(' und ') + ' vor Beginn.' : 'Keine Erinnerungen vor Pflichtterminen.'}</div>
+    <div class="group" style="margin-top:16px">
+      <label class="cell"><span class="main"><span class="t">Prüfungen 1 Woche vorher</span></span>${sw('examWeek', st.examWeek)}</label>
+      <label class="cell"><span class="main"><span class="t">Nachtruhe</span></span>${sw('quiet', st.quiet.on)}</label>
+      <div class="cell" ${st.quiet.on ? '' : 'hidden'}><div class="grid2" style="flex:1"><label class="field"><span>Von</span><input type="time" data-q="from" value="${st.quiet.from}" style="background:var(--fill)"></label><label class="field"><span>Bis</span><input type="time" data-q="to" value="${st.quiet.to}" style="background:var(--fill)"></label></div></div>
+      <button class="cell" data-act="pushLog"><span class="main"><span class="t">Verlauf</span></span>${icon('right', 'chev')}</button>
     </div>
-    <div style="margin-top:var(--s2)">${pushBlock}</div>
-    <div class="card pad" style="margin-top:var(--s3)">
-      <div class="label" style="margin-bottom:8px">Erinnern vor Pflichtterminen & Prüfungen</div>
-      <div class="chips">${OFFSETS.map((o) => `<button class="pill-toggle" data-act="offset" data-v="${o}" aria-pressed="${st.offsets.includes(o)}">${S.offsetLabel(o)}</button>`).join('')}</div>
-      <p class="hint" style="margin:8px 0 0">${st.offsets.length ? 'Du bekommst eine Mitteilung ' + st.offsets.map(S.offsetLabel).join(' und ') + ' vor Beginn.' : 'Keine Erinnerungen vor Pflichtterminen.'}</p>
-    </div>
-    <div class="list" style="margin-top:var(--s3)">
-      <label class="row"><span class="main"><span class="t" style="display:block">Prüfungen zusätzlich 1 Woche vorher</span></span>${sw('examWeek', st.examWeek)}</label>
-      <label class="row"><span class="main"><span class="t" style="display:block">Ruhezeit</span><span class="s" style="display:block">Nachts nichts – Erinnerungen kommen dann vorher oder danach</span></span>${sw('quiet', st.quiet.on)}</label>
-      <div class="row" ${st.quiet.on ? '' : 'hidden'}><div class="grid2" style="flex:1"><label class="field"><span>Von</span><input type="time" data-q="from" value="${st.quiet.from}"></label><label class="field"><span>Bis</span><input type="time" data-q="to" value="${st.quiet.to}"></label></div></div>
-      <button class="row" data-act="pushLog"><span class="main"><span class="t">Protokoll</span></span>${icon('right', 'sm chev')}</button>
-    </div>
+    <div class="gf">In der Nachtruhe kommt nichts – die Erinnerung kommt dann vorher oder am Morgen.</div>
 
-    <div class="section-h"><h2>Studium</h2></div>
-    <div class="list">
-      <button class="row" data-act="editTT"><span class="ibox">${icon('grid')}</span><span class="main"><span class="t">Stundenplan bearbeiten</span></span>${icon('right', 'sm chev')}</button>
-      ${sem ? `<button class="row" data-act="editSemester" data-id="${sem.id}"><span class="ibox">${icon('cal')}</span><span class="main"><span class="t" style="display:block">${esc(sem.name)}</span><span class="s" style="display:block">Wochen, Ferien, Zeitraum</span></span>${icon('right', 'sm chev')}</button>` : ''}
-      <label class="row"><span class="ibox">${icon('repeat')}</span><span class="main"><span class="t" style="display:block">Offen zählen ab</span><span class="s" style="display:block">${st.trackFrom ? 'Frühere Termine nur, wenn eingetragen' : 'Seit Semesterbeginn'}</span></span><input type="date" data-trackfrom value="${st.trackFrom || ''}" style="width:150px;flex:none" aria-label="Offen zählen ab"></label>
-      <button class="row" data-act="newSemester"><span class="ibox">${icon('plus')}</span><span class="main"><span class="t">Neues Semester anlegen</span></span>${icon('right', 'sm chev')}</button>
+    <div class="gh">Studium</div>
+    <div class="group">
+      <button class="cell ic" data-act="editTT"><span class="sq indigo">${icon('grid')}</span><span class="main"><span class="t">Stundenplan</span></span>${icon('right', 'chev')}</button>
+      ${sem ? `<button class="cell ic" data-act="editSemester" data-id="${sem.id}"><span class="sq blue">${icon('cal')}</span><span class="main"><span class="t">Semester</span></span><span class="v">${esc(sem.name)}</span>${icon('right', 'chev')}</button>` : ''}
+      <label class="cell ic"><span class="sq orange">${icon('repeat')}</span><span class="main"><span class="t">Offen zählen ab</span></span><input type="date" data-trackfrom value="${st.trackFrom || ''}" style="width:150px;flex:none;background:var(--fill);height:36px;line-height:36px" aria-label="Offen zählen ab"></label>
+      <button class="cell ic" data-act="newSemester"><span class="sq green">${icon('plus')}</span><span class="main"><span class="t">Neues Semester</span></span>${icon('right', 'chev')}</button>
     </div>
+    <div class="gf">${st.trackFrom ? 'Termine vor diesem Datum zählen nur als offen, wenn du sie eingetragen hast.' : 'Alle Termine seit Semesterbeginn zählen als offen, bis du sie einträgst.'}</div>
 
-    <div class="section-h"><h2>Darstellung</h2></div>
-    ${seg('theme', [['auto', 'Automatisch'], ['light', 'Hell'], ['dark', 'Dunkel']], getTheme())}
+    <div class="gh">Darstellung</div>
+    <div class="group"><div class="cell">${seg('theme', [['auto', 'Automatisch'], ['light', 'Hell'], ['dark', 'Dunkel']], getTheme()).replace('class="seg"', 'class="seg" style="flex:1"')}</div></div>
 
-    <div class="section-h"><h2>Daten</h2></div>
-    <div class="list">
-      <button class="row" data-act="export"><span class="ibox">${icon('download')}</span><span class="main"><span class="t" style="display:block">Sicherung exportieren</span><span class="s" style="display:block">Alle Daten als Datei</span></span></button>
-      <label class="row" style="cursor:pointer"><span class="ibox">${icon('upload')}</span><span class="main"><span class="t" style="display:block">Sicherung einspielen</span><span class="s" style="display:block">Ergänzt/überschreibt mit der Datei</span></span><input type="file" accept="application/json,.json" data-import hidden></label>
+    <div class="gh">Daten</div>
+    <div class="group">
+      <button class="cell ic" data-act="export"><span class="sq gray">${icon('download')}</span><span class="main"><span class="t">Sicherung exportieren</span></span></button>
+      <label class="cell ic" style="cursor:pointer"><span class="sq gray">${icon('upload')}</span><span class="main"><span class="t">Sicherung einspielen</span></span><input type="file" accept="application/json,.json" data-import hidden></label>
     </div>
+    <div class="gf">Deine Daten liegen sicher in deinem Konto. Eine Sicherungsdatei ist ein zusätzlicher Schutz.</div>
 
-    <div class="section-h"><h2>Konto</h2></div>
-    <div class="list">
-      <div class="row"><span class="ibox">${icon('user')}</span><span class="main"><span class="t" style="display:block">${esc(store.user?.email || '')}</span><span class="s" style="display:block">Deine Daten sind auf jedem Gerät verfügbar</span></span></div>
-      <button class="row" data-act="password"><span class="ibox">${icon('lock')}</span><span class="main"><span class="t">Passwort ändern</span></span>${icon('right', 'sm chev')}</button>
-      <button class="row" data-act="logout"><span class="ibox">${icon('logout')}</span><span class="main"><span class="t">Abmelden</span></span></button>
-      <button class="row danger" data-act="deleteAccount"><span class="ibox red">${icon('trash')}</span><span class="main"><span class="t">Konto löschen</span></span></button>
+    <div class="gh">Konto</div>
+    <div class="group">
+      <div class="cell ic"><span class="sq teal">${icon('user')}</span><span class="main"><span class="t">${esc(store.user?.email || '')}</span></span></div>
+      <button class="cell" data-act="password"><span class="main"><span class="t accent-t">Passwort ändern</span></span></button>
+      <button class="cell" data-act="logout"><span class="main"><span class="t accent-t">Abmelden</span></span></button>
     </div>
+    <div class="group" style="margin-top:22px"><button class="cell danger" data-act="deleteAccount"><span class="main"><span class="t">Konto löschen</span></span></button></div>
     <p class="foot-note">Studyloop ${APP_VERSION}</p>
-  </div>`;
+    </div>`;
 
   bindSegs(el, (name, v) => { if (name === 'theme') setTheme(v); });
   el.querySelector('[data-trackfrom]').addEventListener('change', (e) => putSettings({ trackFrom: e.target.value || null }));
@@ -130,12 +135,12 @@ export async function settingsAction(act, btn, rerender) {
     putSettings({ offsets: cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v] });
   } else if (act === 'pushLog') {
     sheet({
-      title: 'Protokoll',
+      title: 'Verlauf',
       render: async (b) => {
         b.innerHTML = '<div class="skel" style="height:120px"></div>';
         try {
           const log = await pushLog();
-          b.innerHTML = log.length ? `<div class="list">${log.map((l) => `<div class="logline ${l.level}"><time>${new Date(l.at).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}</time>${esc(l.message)}</div>`).join('')}</div>`
+          b.innerHTML = log.length ? `<div class="group">${log.map((l) => `<div class="logline ${l.level}"><time>${new Date(l.at).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}</time>${esc(l.message)}</div>`).join('')}</div>`
             : '<div class="empty"><p>Noch keine Einträge. Hier erscheinen Tests und Probleme beim Zustellen.</p></div>';
         } catch (e) { b.innerHTML = `<div class="err">Konnte nicht geladen werden: ${esc(e.message)}</div>`; }
       },
@@ -145,7 +150,7 @@ export async function settingsAction(act, btn, rerender) {
     toast('Sicherung gespeichert');
   } else if (act === 'password') {
     sheet({
-      title: 'Passwort ändern',
+      title: 'Passwort ändern', primary: 'Sichern',
       render(b, api) {
         b.innerHTML = `<div class="form"><label class="field"><span>Neues Passwort</span><div class="pw"><input type="password" data-p autocomplete="new-password" minlength="6"><button type="button" data-eye aria-label="Passwort zeigen">${icon('eye')}</button></div></label>
           <div data-err></div><button class="btn primary" data-save>Speichern</button></div>`;

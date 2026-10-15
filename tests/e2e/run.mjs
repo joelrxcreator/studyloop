@@ -31,16 +31,21 @@ async function newApp({ width = 390, height = 844, theme = 'dark', time = '2026-
 }
 
 async function signUp(page, email = 'joel@example.org', pw = 'geheim123') {
-  await page.getByRole('button', { name: 'Konto erstellen' }).first().click();
+  await page.locator('[data-auth="up"]').click();
+  await page.waitForSelector('.sheet-wrap.open input[name=email]');
   await page.fill('input[name=email]', email);
   await page.fill('input[name=password]', pw);
   await page.locator('[data-submit]').click();
 }
+const setRange = (page, v) => page.locator('[data-range]').evaluate((el, v) => { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }, v);
+const title = (page) => page.locator('#main .lt h1').innerText();
+const save = (page) => page.locator('.sheet-wrap.open [data-primary]').last().click();
 
 async function setupHBRS(page) {
   await page.getByText('Hochschule Bonn-Rhein-Sieg').click();
   await page.getByText('ET1-EK3 · Gruppe B').click();
   await page.getByText('Ab heute zählen').click();
+  if (await page.locator('[data-skip]').count()) await page.locator('[data-skip]').click();
   await page.waitForSelector('.tabbar');
 }
 
@@ -54,7 +59,7 @@ async function overflowCheck(page, label) {
       if (!r.width || !r.height) return false;
       const st = getComputedStyle(e);
       if (st.visibility === 'hidden' || st.display === 'none') return false;
-      if (e.closest('.sheet-wrap:not(.open), .page:not(.in), .toast:not(.show), .ptr, .tt-scroll')) return false;
+      if (e.closest('.sheet-wrap:not(.open), .page:not(.in), .toast:not(.show), .ptr')) return false;
       return r.right > W + 1 || r.left < -1;
     }).slice(0, 5).map((e) => `${e.tagName}.${e.className} right=${Math.round(e.getBoundingClientRect().right)}`);
   });
@@ -80,50 +85,48 @@ async function test(name, fn) {
 }
 
 // ------------------------------------------------------------------
-await test('Anmelden: Fehler verständlich, Registrieren, Vorlage übernehmen, landet auf heute', async () => {
+await test('Willkommen: Fehler verständlich, Registrieren, Vorlage übernehmen, landet auf heute', async () => {
   const { page, errors, ctx, mock } = await newApp();
   await page.waitForSelector('.auth');
-  await shot(page, '01-login-dark');
+  await shot(page, '01-willkommen');
+  await page.locator('[data-auth="in"]').click();
+  await page.waitForSelector('.sheet-wrap.open input[name=email]');
   await page.fill('input[name=email]', 'falsch');
   await page.fill('input[name=password]', '123');
   await page.locator('[data-submit]').click();
-  await page.waitForSelector('.err');
-  assert.match(await page.locator('.err').innerText(), /gültige E-Mail/);
+  assert.match(await page.locator('[data-msg]').innerText(), /gültige E-Mail/);
   mock.users.set('a@b.de', { id: 'x1', email: 'a@b.de', password: 'richtig1' });
   await page.fill('input[name=email]', 'a@b.de');
   await page.fill('input[name=password]', 'falsch12');
   await page.locator('[data-submit]').click();
-  await page.waitForFunction(() => /stimmt nicht/.test(document.querySelector('.err')?.textContent || ''));
+  await page.waitForFunction(() => /stimmt nicht/.test(document.querySelector('[data-msg]')?.textContent || ''));
+  await page.locator('.sheet-h [data-close]').click();
+  await page.waitForTimeout(500);
   await signUp(page);
-  await page.waitForSelector('.choice');
-  await shot(page, '02-onboarding-1');
+  await page.waitForSelector('[data-preset]');
+  assert.equal(await page.locator('.sheet-wrap.open').count(), 0, 'Anmelde-Fenster ist zu');
   await page.getByText('Hochschule Bonn-Rhein-Sieg').click();
-  await shot(page, '03-onboarding-2');
   await page.getByText('ET1-EK3 · Gruppe B').click();
-  await shot(page, '03b-onboarding-3');
+  await shot(page, '03-semester-laeuft');
   await page.getByText('Ab heute zählen').click();
+  await shot(page, '03b-erinnerungen');
+  await page.locator('[data-skip]').click();
   await page.waitForSelector('.occ');
-  await page.waitForTimeout(400);
-  await shot(page, '04-heute-dark');
-  const title = await page.locator('.title-xl').innerText();
-  assert.equal(title, 'Heute');
-  assert.match(await page.locator('.eyebrow').first().textContent(), /KW 42 · Dunkle Woche/);
-  const names = await page.locator('.occ .name').allInnerTexts();
-  assert.deepEqual(names, ['Werkstoffe', 'Informatik 1', 'Werkstoffe']);
-  await page.waitForTimeout(800);
-  assert.equal(mock.db.semesters.length, 1, 'Semester gespeichert');
-  assert.equal(mock.db.series.length, 14, 'Termine gespeichert');
+  await page.waitForTimeout(500);
+  await shot(page, '04-heute');
+  assert.equal(await title(page), 'Heute');
+  assert.match(await page.locator('#main .lt-sub').innerText(), /Mittwoch, 14\. Oktober/);
+  assert.deepEqual(await page.locator('.occ .name').allInnerTexts(), ['Werkstoffe', 'Informatik 1', 'Werkstoffe']);
+  assert.equal(mock.db.semesters.length, 1);
+  assert.equal(mock.db.series.length, 14);
   assert.equal(mock.db.exams.length, 4);
   assert.equal(mock.db.settings[0]?.data.trackFrom, '2026-10-14');
-  const tileTxt = (await page.locator('.tile').nth(1).innerText()).replace(/\s+/g, ' ');
-  assert.match(tileTxt, /Offen 2 · 4 Std\./, 'heute 08:15 + 10:15 (begonnen) zählen: ' + tileTxt);
   await overflowCheck(page, 'Heute 390');
   await tapTargets(page, 'Heute');
   assert.deepEqual(errors, []);
   await ctx.close();
 });
 
-// gemeinsamer Zustand für die weiteren Tests
 async function ready(opts = {}) {
   const a = await newApp(opts);
   await signUp(a.page);
@@ -136,13 +139,10 @@ await test('Termin bearbeiten: Regler, Sterne, Notiz, Pflicht – sofort gespeic
   const { page, errors, ctx, mock } = await ready();
   await page.locator('.occ').first().click();
   await page.waitForSelector('.sheet-wrap.open');
-  await page.waitForTimeout(350);
-  await shot(page, '05-termin-sheet');
+  await page.waitForTimeout(450);
+  await shot(page, '05-termin');
   await overflowCheck(page, 'Termin-Sheet');
   await tapTargets(page, 'Termin-Sheet');
-  // Regler per Schnellwahl und per Ziehen
-  await page.locator('[data-quick="75"]').click();
-  assert.equal(await page.locator('[data-pct]').innerText(), '75 %');
   const r = await page.locator('[data-range]').boundingBox();
   await page.mouse.click(r.x + r.width * 0.4, r.y + r.height / 2);
   await page.waitForTimeout(100);
@@ -153,24 +153,36 @@ await test('Termin bearbeiten: Regler, Sterne, Notiz, Pflicht – sofort gespeic
   await page.fill('[data-note]', 'Kapitel 5 nochmal anschauen');
   await page.locator('[data-sw="mandatory"]').check({ force: true });
   await page.waitForTimeout(900);
-  await shot(page, '06-termin-sheet-ausgefuellt');
-  await page.locator('.sheet-backdrop').click({ position: { x: 20, y: 20 } });
-  await page.waitForTimeout(500);
+  await shot(page, '06-termin-ausgefuellt');
+  await page.locator('.sheet-h [data-close]').click();
+  await page.waitForTimeout(600);
   const occ = mock.db.occurrences[0];
   assert.equal(occ.progress, pct);
   assert.equal(occ.stars, 4);
   assert.equal(occ.note, 'Kapitel 5 nochmal anschauen');
   assert.equal(occ.mandatory, true);
   assert.equal(mock.db.activity.length, 1, 'Aktivität für Serie');
-  await shot(page, '07-heute-nach-bearbeiten');
-  // Cache weg, neu laden → kommt vom Server
   await page.evaluate(() => { for (const k of Object.keys(localStorage)) if (k.startsWith('sl.cache')) localStorage.removeItem(k); });
   await page.reload();
   await page.waitForSelector('.occ');
   const card = await page.locator('.occ').first().innerText();
   assert.match(card, /Kapitel 5/);
   assert.match(card, new RegExp(pct + ' %'));
-  assert.equal(await page.locator('.occ').first().locator('.flag.red').count(), 1);
+  assert.match(card, /Pflicht/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await test('Abhaken mit dem Kreis + Widerrufen', async () => {
+  const { page, errors, ctx, mock } = await ready();
+  await page.locator('.occ [data-act="done"]').first().click();
+  await page.waitForTimeout(500);
+  assert.equal(mock.db.occurrences[0].progress, 100);
+  assert.equal(await page.locator('.occ .check.done').count(), 1);
+  await page.locator('.toast button').click();
+  await page.waitForTimeout(500);
+  assert.equal(mock.db.occurrences[0].progress, 0);
+  assert.equal(await page.locator('.sheet-wrap').count(), 0, 'Kreis öffnet kein Fenster');
   assert.deepEqual(errors, []);
   await ctx.close();
 });
@@ -179,10 +191,10 @@ await test('Schnell hintereinander tippen: keine Änderung geht verloren', async
   const { page, errors, ctx, mock } = await ready();
   await page.locator('.occ').nth(1).click();
   await page.waitForSelector('.sheet-wrap.open');
-  for (const v of [25, 50, 75, 100, 0, 50]) await page.locator(`[data-quick="${v}"]`).click();
+  for (const v of [25, 50, 75, 100, 0, 50]) await setRange(page, v);
   for (const s of [1, 2, 3, 5]) await page.locator(`[data-star="${s}"]`).click();
   await page.locator('[data-note]').pressSequentially('abc', { delay: 10 });
-  await page.locator('[data-close]').click();
+  await page.locator('.sheet-h [data-close]').click();
   await page.waitForTimeout(1200);
   const o = mock.db.occurrences.find((x) => x.on_date === '2026-10-14' && x.progress === 50);
   assert.ok(o, 'Fortschritt 50 gespeichert: ' + JSON.stringify(mock.db.occurrences));
@@ -195,18 +207,14 @@ await test('Schnell hintereinander tippen: keine Änderung geht verloren', async
 await test('Offline: Änderungen bleiben und werden später gespeichert', async () => {
   const { page, errors, ctx, mock } = await ready();
   mock.state.offline = true;
-  await page.locator('.occ').first().click();
-  await page.waitForSelector('.sheet-wrap.open');
-  await page.locator('[data-quick="100"]').click();
-  await page.locator('[data-close]').click();
+  await page.locator('.occ [data-act="done"]').first().click();
   await page.waitForTimeout(2500);
   await shot(page, '08-offline');
   assert.equal(mock.db.occurrences.length, 0);
   assert.match(await page.locator('.syncpill').innerText(), /Offline/);
-  // App neu öffnen ohne Netz → Daten aus dem Gerät
   await page.reload();
   await page.waitForSelector('.occ');
-  assert.match(await page.locator('.occ').first().innerText(), /100 %/);
+  assert.equal(await page.locator('.occ .check.done').count(), 1);
   mock.state.offline = false;
   await page.waitForTimeout(4500);
   assert.equal(mock.db.occurrences[0]?.progress, 100, 'nach Wiederverbindung gespeichert');
@@ -216,12 +224,9 @@ await test('Offline: Änderungen bleiben und werden später gespeichert', async 
 
 await test('Navigation: Tage/Wochen wischen, Zukunft & Vergangenheit, Projektwoche, zurück zu heute', async () => {
   const { page, errors, ctx } = await ready();
-  // nächster Tag per Wochenleiste
   await page.locator('.strip button').nth(4).click();
-  assert.match(await page.locator('.title-xl').innerText(), /Freitag/);
+  assert.equal(await title(page), 'Freitag');
   assert.equal(await page.locator('.occ').count(), 3);
-  // Wischen auf Inhalt: nächster Tag (Sa) → leer
-  const box = await page.locator('[data-swipe="day"]').boundingBox();
   const swipe = async (sel, dx) => {
     await page.evaluate(({ sel, dx }) => {
       const el = document.querySelector(sel);
@@ -233,114 +238,112 @@ await test('Navigation: Tage/Wochen wischen, Zukunft & Vergangenheit, Projektwoc
     await page.waitForTimeout(50);
   };
   await swipe('[data-swipe="day"]', -120);
-  assert.match(await page.locator('.title-xl').innerText(), /Samstag/);
-  await shot(page, '09-samstag-leer');
-  // Woche vor (Projektwoche KW44): zweimal Wochenleiste wischen
+  assert.equal(await title(page), 'Samstag');
+  await shot(page, '09-samstag');
   await swipe('[data-swipe="week"]', -120);
   await swipe('[data-swipe="week"]', -120);
-  assert.match(await page.locator('.eyebrow').first().textContent(), /Projektwoche/);
+  assert.match(await page.locator('.note-banner').innerText(), /Projektwoche/);
   await shot(page, '10-projektwoche');
-  // Vergangenheit
   for (let i = 0; i < 4; i++) await swipe('[data-swipe="week"]', 120);
-  assert.match(await page.locator('.eyebrow').first().textContent(), /KW 40/);
-  await page.getByRole('button', { name: 'Heute', exact: true }).first().click();
-  assert.equal(await page.locator('.title-xl').innerText(), 'Heute');
+  assert.equal(await page.evaluate(() => window.__studyloop.ui.day), '2026-10-03');
+  await page.locator('.pill-btn', { hasText: 'Heute' }).click();
+  assert.equal(await title(page), 'Heute');
   assert.deepEqual(errors, []);
   await ctx.close();
 });
 
-await test('Woche, Fächer-Cockpit, Fach-Detail, Prüfungen', async () => {
+await test('Woche: Stundenplan-Raster, blättern, Offenes; Fächer, Fach, Nachholen', async () => {
   const { page, errors, ctx, mock } = await ready({ time: '2026-10-21T19:00:00+02:00' });
-  // ein paar Einträge: Mathe-Vorlesung 13.10. halb, schwach bewertet
-  await page.getByRole('button', { name: 'Woche' }).click();
+  await page.locator('[data-tab="week"]').click();
   await page.waitForTimeout(300);
   await shot(page, '11-woche');
   await overflowCheck(page, 'Woche');
   await tapTargets(page, 'Woche');
-  await page.locator('[data-act="wk"][data-d="-7"]').click();
-  await page.locator('[data-act="toggleBefore"]').click();
-  await shot(page, '11b-woche-vor-start');
-  const firstOpen = page.locator('.list .row').first();
-  await firstOpen.click();
-  await page.waitForSelector('.sheet-wrap.open');
-  await page.locator('[data-quick="50"]').click();
-  await page.locator('[data-star="1"]').click();
-  await page.locator('[data-close]').click();
-  await page.waitForTimeout(400);
-  await page.getByRole('button', { name: 'Fächer' }).click();
+  assert.equal(await page.locator('.tt-col').count(), 5);
+  assert.ok(await page.locator('.tt-item').count() >= 12);
+  assert.equal(await page.locator('.gh', { hasText: 'Offen in dieser Woche' }).count(), 1);
+  await page.locator('[data-act="wk"][data-d="7"]').click();
+  assert.match(await title(page), /26\. Okt/);
+  assert.equal(await page.locator('.tt-item').count(), 0, 'Projektwoche leer');
+  await page.locator('[data-act="wk"][data-d="0"]').click();
+  // offenen Termin abhaken über die Liste
+  await page.locator('.group [data-act="done"]').first().click();
+  await page.waitForTimeout(300);
+  await page.locator('[data-tab="subjects"]').click();
   await page.waitForTimeout(300);
   await shot(page, '12-faecher');
   await overflowCheck(page, 'Fächer');
   await tapTargets(page, 'Fächer');
-  const rows = await page.locator('.list .row').count();
-  assert.equal(rows, 6);
-  await page.locator('.list .row').first().click();
+  assert.equal(await page.locator('[data-act="subject"]').count(), 6);
+  await page.locator('[data-act="subject"]').first().click();
   await page.waitForSelector('.page.in');
-  await page.waitForTimeout(350);
-  await shot(page, '13-fach-detail');
-  await overflowCheck(page, 'Fach-Detail');
+  await page.waitForTimeout(450);
+  await shot(page, '13-fach');
+  await overflowCheck(page, 'Fach');
   await page.locator('.page [data-act="back"]').click();
-  await page.waitForTimeout(350);
-  await page.getByRole('button', { name: 'Prüfungen' }).click();
+  await page.waitForTimeout(500);
+  await page.locator('.stat[data-act="backlog"]').click();
+  await page.waitForSelector('.page.in');
+  await page.waitForTimeout(450);
+  await shot(page, '13b-nachholen');
+  assert.equal(await page.locator('.page.in .lt h1').innerText(), 'Nachholen');
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await test('Prüfungen: anlegen, Countdown, Fristen', async () => {
+  const { page, errors, ctx, mock } = await ready({ time: '2026-10-21T19:00:00+02:00' });
+  await page.locator('[data-tab="exams"]').click();
   await page.waitForTimeout(300);
   await shot(page, '14-pruefungen-leer');
-  // Prüfung anlegen
-  await page.locator('[data-act="newExam"]').first().click();
+  await page.locator('.nav [data-act="newExam"]').click();
   await page.waitForSelector('.sheet-wrap.open');
   await page.selectOption('[data-f="subject_id"]', { label: 'Mathe 1' });
   await page.fill('[data-f="on_date"]', '2027-01-27');
   await page.fill('[data-f="starts_at"]', '09:00');
   await page.fill('[data-f="room"]', 'HS1');
+  await page.waitForTimeout(300);
   await shot(page, '15-pruefung-anlegen');
   await overflowCheck(page, 'Prüfung-Sheet');
-  await page.locator('[data-save]').click();
-  await page.waitForTimeout(500);
+  await save(page);
+  await page.waitForTimeout(600);
   await shot(page, '16-pruefungen');
-  assert.match(await page.locator('.hero .big').innerText(), /^98/);
+  assert.match(await page.locator('#main').innerText(), /Nächste Prüfung[\s\S]*Mathe 1[\s\S]*98/);
   assert.equal(mock.db.exams.find((e) => e.room === 'HS1')?.title, 'Mathe 1');
   assert.deepEqual(errors, []);
   await ctx.close();
 });
 
-await test('Stundenplan: Schnellzugriff öffnen/schließen, Wochen blättern, Bearbeiten', async () => {
-  const { page, errors, ctx } = await ready();
-  await page.locator('[data-fab]').click();
-  await page.waitForSelector('.tt-wrap.open');
-  await page.waitForTimeout(300);
-  await shot(page, '17-stundenplan');
-  assert.equal(await page.locator('.tt-col').count(), 5);
-  assert.ok(await page.locator('.tt-item').count() >= 12);
-  await page.locator('[data-act="tt"][data-d="7"]').click();
-  await shot(page, '18-stundenplan-helle-woche');
-  await page.locator('[data-fab]').click();
-  await page.waitForTimeout(300);
-  assert.equal(await page.locator('.tt-wrap').count(), 0);
-  // Bearbeiten-Seite
-  await page.locator('[data-fab]').click();
-  await page.getByRole('button', { name: /Stundenplan bearbeiten/ }).click();
+await test('Stundenplan bearbeiten: Termin mit Überschneidung anlegen', async () => {
+  const { page, errors, ctx, mock } = await ready();
+  await page.locator('[data-tab="week"]').click();
+  await page.locator('#main [data-act="editTT"]').first().click();
   await page.waitForSelector('.page.in');
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(450);
   await shot(page, '19-stundenplan-bearbeiten');
   await overflowCheck(page, 'Stundenplan bearbeiten');
-  // Termin hinzufügen mit Überschneidung
-  await page.locator('[data-act="newSeries"]').first().click();
+  await page.locator('.page.in [data-act="newSeries"]').first().click();
   await page.waitForSelector('.sheet-wrap.open');
   await page.locator('[data-seg="weekday"] [data-v="3"]').click();
   await page.fill('[data-f="starts_at"]', '09:00');
   await page.fill('[data-f="ends_at"]', '11:00');
   await page.fill('[data-f="room"]', 'B999');
+  await page.waitForTimeout(300);
   await shot(page, '20-termin-anlegen');
   await overflowCheck(page, 'Termin anlegen');
   await tapTargets(page, 'Termin anlegen');
-  await page.locator('[data-save]').click();
+  await save(page);
+  await page.waitForTimeout(500);
+  assert.equal(mock.db.series.length, 15);
+  await page.locator('.page.in [data-act="back"]').click();
+  await page.waitForTimeout(500);
+  await page.locator('[data-tab="day"]').click();
   await page.waitForTimeout(300);
-  await page.locator('.page [data-act="back"]').click();
-  await page.waitForTimeout(400);
   await shot(page, '21-heute-ueberschneidung');
-  assert.ok(await page.locator('.pause span', { hasText: 'Überschneidung' }).count() >= 1);
-  await page.locator('[data-fab]').click();
+  assert.ok(await page.locator('.cell.gap.warn').count() >= 1);
+  await page.locator('[data-tab="week"]').click();
   await page.waitForTimeout(300);
-  await shot(page, '22-stundenplan-ueberschneidung');
+  await shot(page, '22-woche-ueberschneidung');
   assert.deepEqual(errors, []);
   await ctx.close();
 });
@@ -348,54 +351,51 @@ await test('Stundenplan: Schnellzugriff öffnen/schließen, Wochen blättern, Be
 await test('Bestimmte Wochen auswählen (z. B. Praktikum nur in einzelnen Wochen)', async () => {
   const { page, errors, ctx, mock } = await ready();
   await page.locator('[data-act="settings"]').click();
-  await page.locator('[data-act="editTT"]').click();
-  await page.waitForTimeout(400);
+  await page.locator('.page.in [data-act="editTT"]').click();
+  await page.waitForTimeout(500);
   await page.locator('.page.in').last().getByText('Montag · 15:15–16:45').click();
   await page.waitForSelector('.sheet-wrap.open');
   await page.locator('[data-seg="weeks_rule"] [data-v="custom"]').click();
-  await page.locator('[data-save]').click();
-  assert.match(await page.locator('.err').innerText(), /mindestens eine Woche/);
+  await save(page);
+  assert.match(await page.locator('.sheet .err').innerText(), /mindestens eine Woche/);
   await page.locator('[data-wk="2026-10-19"]').click();
   await page.locator('[data-wk="2026-11-16"]').click();
   await page.waitForTimeout(200);
   await shot(page, '26-wochen-auswahl');
   await overflowCheck(page, 'Wochen-Auswahl');
-  await page.locator('[data-save]').click();
+  await save(page);
   await page.waitForTimeout(600);
   const sr = mock.db.series.find((x) => x.weekday === 1 && x.starts_at.startsWith('15:15'));
   assert.equal(sr.weeks_rule, 'custom');
   assert.deepEqual(sr.custom_weeks, ['2026-10-19', '2026-11-16']);
   assert.match(await page.locator('.page.in').last().innerText(), /2 ausgewählte Wochen/);
-  // Stundenplan: KW43 ja, KW45 nein
-  await page.locator('.page.in').last().locator('[data-act="back"]').click();
-  await page.locator('.page.in').last().locator('[data-act="back"]').click();
-  await page.waitForTimeout(400);
-  await page.locator('[data-fab]').click();
-  await page.locator('[data-act="tt"][data-d="7"]').click();
-  assert.equal(await page.locator('.tt-item', { hasText: 'B114' }).count(), 1, 'KW43 mit Praktikum');
-  await page.locator('[data-act="tt"][data-d="7"]').click();
-  await page.locator('[data-act="tt"][data-d="7"]').click();
-  assert.equal(await page.locator('.tt-item', { hasText: 'B114' }).count(), 0, 'KW45 ohne Praktikum');
+  await page.locator('[data-tab="week"]').click();
+  await page.waitForTimeout(300);
+  await page.locator('[data-act="wk"][data-d="7"]').click();
+  assert.equal(await page.locator('.tt-item', { hasText: 'Informatik' }).count(), 2, 'KW43: Vorlesung + Praktikum');
+  await page.locator('[data-act="wk"][data-d="7"]').click();
+  await page.locator('[data-act="wk"][data-d="7"]').click();
+  assert.equal(await page.locator('.tt-item', { hasText: 'Informatik' }).count(), 1, 'KW45: nur Vorlesung');
   assert.deepEqual(errors, []);
   await ctx.close();
 });
 
-await test('Einstellungen, Hell/Dunkel, Mitteilungen-Hinweis, Löschen braucht Bestätigung', async () => {
+await test('Einstellungen, Hell/Dunkel, Löschen braucht Bestätigung', async () => {
   const { page, errors, ctx, mock } = await ready();
   await page.locator('[data-act="settings"]').click();
   await page.waitForSelector('.page.in');
-  await page.waitForTimeout(400);
+  await page.waitForTimeout(450);
   await shot(page, '23-einstellungen');
   await overflowCheck(page, 'Einstellungen');
+  await tapTargets(page, 'Einstellungen');
   await page.locator('[data-seg="theme"] [data-v="light"]').click();
   await page.waitForTimeout(200);
   await shot(page, '24-einstellungen-hell');
   await page.locator('[data-act="offset"][data-v="60"]').click();
   await page.waitForTimeout(400);
   assert.deepEqual(mock.db.settings[0].data.offsets, [1440, 180, 60]);
-  // Semester löschen: Tippwort nötig
-  await page.locator('[data-act="editSemester"]').click();
-  await page.waitForTimeout(400);
+  await page.locator('.page.in [data-act="editSemester"]').click();
+  await page.waitForTimeout(500);
   await shot(page, '25-semester');
   await overflowCheck(page, 'Semester');
   await page.locator('.page.in').last().locator('[data-act="delSemester"]').click();
@@ -404,33 +404,31 @@ await test('Einstellungen, Hell/Dunkel, Mitteilungen-Hinweis, Löschen braucht B
   await page.fill('[data-word]', 'löschen');
   assert.equal(await page.locator('[data-yes]').isDisabled(), false);
   await page.locator('[data-no]').click();
-  await page.waitForTimeout(400);
+  await page.waitForTimeout(500);
   assert.equal(mock.db.semesters.length, 1);
   assert.deepEqual(errors, []);
   await ctx.close();
 });
 
-await test('Hell-Modus und schmale/große Bildschirme sauber', async () => {
-  for (const [w, h, theme, scale] of [[320, 640, 'light', 1], [430, 932, 'light', 1], [820, 1180, 'dark', 1], [390, 844, 'light', 1.3]]) {
+await test('Alle Bildschirme sauber: schmal, groß, iPad, große Schrift, hell & dunkel', async () => {
+  for (const [w, h, theme, scale] of [[320, 640, 'light', 1], [430, 932, 'dark', 1], [820, 1180, 'light', 1], [390, 844, 'dark', 1.3]]) {
     const { page, errors, ctx } = await ready({ width: w, height: h, theme, fontScale: scale });
     const tag = `${w}-${theme}${scale !== 1 ? '-gross' : ''}`;
     await shot(page, `30-heute-${tag}`);
     await overflowCheck(page, 'Heute ' + tag);
     await page.locator('.occ').first().click();
     await page.waitForSelector('.sheet-wrap.open');
-    await page.waitForTimeout(350);
-    await shot(page, `31-sheet-${tag}`);
-    await overflowCheck(page, 'Sheet ' + tag);
-    await page.locator('[data-close]').click();
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(450);
+    await shot(page, `31-termin-${tag}`);
+    await overflowCheck(page, 'Termin ' + tag);
+    await page.locator('.sheet-h [data-close]').click();
+    await page.waitForTimeout(450);
     for (const tab of ['Woche', 'Fächer', 'Prüfungen']) {
-      await page.getByRole('button', { name: tab }).click();
-      await page.waitForTimeout(150);
+      await page.locator(`[data-tab="${{ Woche: 'week', Fächer: 'subjects', Prüfungen: 'exams' }[tab]}"]`).click();
+      await page.waitForTimeout(200);
       await overflowCheck(page, `${tab} ${tag}`);
+      if (tab === 'Woche') await shot(page, `32-woche-${tag}`);
     }
-    await page.locator('[data-fab]').click();
-    await page.waitForTimeout(300);
-    await shot(page, `32-stundenplan-${tag}`);
     assert.deepEqual(errors, [], tag);
     await ctx.close();
   }
@@ -439,12 +437,9 @@ await test('Hell-Modus und schmale/große Bildschirme sauber', async () => {
 await test('Fehlerfall: Server-Fehler wird wiederholt, kaputte Sicherung crasht nicht', async () => {
   const { page, errors, ctx, mock } = await ready();
   mock.state.failNext = 2;
-  await page.locator('.occ').first().click();
-  await page.locator('[data-quick="25"]').click();
-  await page.locator('[data-close]').click();
+  await page.locator('.occ [data-act="done"]').first().click();
   await page.waitForTimeout(7000);
-  assert.equal(mock.db.occurrences[0]?.progress, 25);
-  // Backup-Import mit Unsinn
+  assert.equal(mock.db.occurrences[0]?.progress, 100);
   await page.locator('[data-act="settings"]').click();
   await page.waitForSelector('.page.in');
   await page.setInputFiles('[data-import]', { name: 'x.json', mimeType: 'application/json', buffer: Buffer.from('{kaputt') });

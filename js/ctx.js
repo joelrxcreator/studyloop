@@ -9,6 +9,7 @@ export const ui = {
   ttMon: S.mondayOf(S.localDate()),
   semId: null,
   showDone: false,
+  showPast: false,
 };
 
 /** Navigations-Funktionen, von app.js gesetzt. */

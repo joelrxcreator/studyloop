@@ -2,7 +2,7 @@
 import * as S from './schedule.js';
 import { store, idx, put, putMany, remove, patchOcc } from './store.js';
 import { icon } from './icons.js';
-import { esc, sheet, toast, confirmDialog, seg, bindSegs, segValue, sw, fmtDate, fmtRange, fmtDayTitle, WD, WD_LONG, COLORS, COLOR_NAMES, haptic } from './ui.js';
+import { esc, sheet, toast, confirmDialog, seg, bindSegs, segValue, sw, fmtDate, fmtLong, fmtRange, fmtDayTitle, WD, WD_LONG, COLORS, COLOR_NAMES, haptic, navBar, largeTitle, backBtn } from './ui.js';
 import { ui, nav, today, nowMin, currentSemester, subjectsOf } from './ctx.js';
 import { uuid, SEMESTER_PRESETS, buildFromPreset } from './presets.js';
 import { pushState } from './push.js';
@@ -40,54 +40,51 @@ export function openOcc(key) {
         const future = !S.isDue(o, t, nowMin()) && !o.cancelled;
         const kind = S.KINDS[sr.kind]?.label || 'Termin';
         const offs = store.settings.offsets.map(S.offsetLabel).join(' & ');
+        const hints = ['Noch nicht bewertet', 'Gar nicht', 'Wackelig', 'Geht so', 'Ziemlich sicher', 'Sitzt'];
         b.innerHTML = `
-        <div data-c="${o.subject?.color || 'slate'}" class="form">
-          <div style="display:flex;gap:12px;align-items:flex-start">
-            <span class="cbar" style="min-height:44px"></span>
+        <div data-c="${o.subject?.color || 'slate'}">
+          <div style="display:flex;gap:12px;align-items:center;padding:4px 4px 0">
+            <span class="sq lg">${esc((o.subject?.code || o.subject?.name || '').slice(0, 3))}</span>
             <div style="flex:1;min-width:0">
-              <div style="font-weight:700">${esc(kind)} · ${fmtDayTitle(date)}</div>
+              <div style="font-weight:600">${esc(kind)} · ${fmtLong(date)}</div>
               <div class="sub">${o.starts}–${o.ends}${o.room ? ' · ' + esc(o.room) : ''}${sr.lecturer ? ' · ' + esc(sr.lecturer) : ''}${sr.group_label ? ' · ' + esc(sr.group_label) : ''}</div>
-              <div class="chips" style="margin-top:8px">
-                ${o.cancelled ? '<span class="chip red">Fällt aus</span>' : ''}
-                ${o.mandatory && !o.cancelled ? '<span class="chip red">Pflicht</span>' : ''}
-                ${o.moved ? '<span class="chip amber">verlegt</span>' : ''}
-                ${o.overlaps ? '<span class="chip amber">überschneidet sich</span>' : ''}
-                ${future ? '<span class="chip">kommt noch</span>' : ''}
-              </div>
             </div>
           </div>
+          ${o.cancelled || o.mandatory || o.moved || o.overlaps || future ? `<div class="chips" style="margin:10px 4px 0">
+            ${o.cancelled ? '<span class="chip red">Fällt aus</span>' : ''}${o.mandatory && !o.cancelled ? '<span class="chip red">Pflicht</span>' : ''}
+            ${o.moved ? '<span class="chip amber">Verlegt</span>' : ''}${o.overlaps ? '<span class="chip amber">Überschneidet sich</span>' : ''}${future ? '<span class="chip">Kommt noch</span>' : ''}</div>` : ''}
 
-          <div class="card pad" ${o.cancelled ? 'hidden' : ''}>
-            <div style="display:flex;justify-content:space-between;align-items:baseline"><span class="label">Wie viel hast du bearbeitet?</span><b class="round num" data-pct style="font-size:1.6rem;color:var(--c)">${o.progress} %</b></div>
-            <input type="range" class="range" min="0" max="100" step="5" value="${o.progress}" style="--p:${o.progress}%" data-range aria-label="Fortschritt in Prozent">
-            <div class="chips" style="justify-content:space-between">${[0, 25, 50, 75, 100].map((v) => `<button class="chip" data-quick="${v}" style="min-width:52px;justify-content:center">${v}${v === 100 ? ' %' : ''}</button>`).join('')}</div>
+          <div ${o.cancelled ? 'hidden' : ''}>
+            <div class="gh">Bearbeitet<b data-pct class="num" style="font-family:var(--round);font-size:1.18rem;color:var(--label);text-transform:none">${o.progress} %</b></div>
+            <div class="group"><div class="cell" style="padding:2px 16px"><input type="range" class="range" min="0" max="100" step="5" value="${o.progress}" style="--p:${o.progress}%" data-range aria-label="Fortschritt in Prozent"></div></div>
+            <div class="gf">Wie viel der Vorlesung bzw. Übung du schon nachgearbeitet hast.</div>
+            <div class="gh">Sicherheit<span data-starhint style="text-transform:none">${hints[o.stars || 0]}</span></div>
+            <div class="group"><div class="cell" style="padding:2px 6px"><div class="stars" style="flex:1">${[1, 2, 3, 4, 5].map((n) => `<button data-star="${n}" class="${o.stars >= n ? 'on' : ''}" aria-label="${n} von 5 Sternen">${icon('star')}</button>`).join('')}</div></div></div>
           </div>
 
-          <div class="card pad" ${o.cancelled ? 'hidden' : ''}>
-            <div style="display:flex;justify-content:space-between;align-items:baseline"><span class="label">Wie fit fühlst du dich?</span><span class="hint" data-starhint>${['Noch nicht bewertet', 'Gar nicht', 'Wackelig', 'Geht so', 'Ziemlich gut', 'Sitzt'][o.stars || 0]}</span></div>
-            <div class="stars" style="justify-content:space-between;margin-top:4px">${[1, 2, 3, 4, 5].map((n) => `<button data-star="${n}" class="${o.stars >= n ? 'on' : ''}" aria-label="${n} Sterne">${icon('star')}</button>`).join('')}</div>
-          </div>
+          <div class="gh">Notiz</div>
+          <textarea data-note maxlength="2000" placeholder="z. B. Kapitel 5 nochmal anschauen">${esc(o.note)}</textarea>
 
-          <label class="field"><span>Notiz</span><textarea data-note maxlength="2000" placeholder="z. B. Kapitel 5 nochmal anschauen">${esc(o.note)}</textarea></label>
-
-          <div class="list">
-            <label class="row"><span class="ibox red">${icon('bell')}</span><span class="main"><span class="t" style="display:block">Pflichttermin</span><span class="s" style="display:block">Erinnerung ${esc(offs || 'aus')} vorher</span></span>${sw('mandatory', o.mandatory, 'Pflichttermin')}</label>
+          <div class="group" style="margin-top:22px">
+            <label class="cell ic"><span class="sq red">${icon('bell')}</span><span class="main"><span class="t">Pflichttermin</span></span>${sw('mandatory', o.mandatory, 'Pflichttermin')}</label>
           </div>
+          <div class="gf">${o.mandatory ? `Du wirst ${esc(offs || 'nicht')} vorher erinnert.` : 'Bei Pflichtterminen bekommst du eine Erinnerung aufs Handy.'}</div>
 
-          <div class="section-h" style="margin:var(--s2) 4px 0"><h2>Nur dieser Termin</h2></div>
-          <div class="list">
-            <label class="row"><span class="ibox">${icon('calX')}</span><span class="main"><span class="t" style="display:block">Fällt aus</span><span class="s" style="display:block">Zählt dann nicht mehr als offen</span></span>${sw('cancelled', o.cancelled, 'Fällt aus')}</label>
-            <button class="row" data-move><span class="ibox">${icon('clock')}</span><span class="main"><span class="t" style="display:block">Zeit oder Raum ändern</span><span class="s" style="display:block">${o.moved ? 'Geändert – tippen zum Anpassen' : 'Wenn er ausnahmsweise verlegt ist'}</span></span>${icon('right', 'sm chev')}</button>
+          <div class="gh">Nur dieser Termin</div>
+          <div class="group">
+            <label class="cell ic"><span class="sq gray">${icon('calX')}</span><span class="main"><span class="t">Fällt aus</span></span>${sw('cancelled', o.cancelled, 'Fällt aus')}</label>
+            <button class="cell ic" data-move><span class="sq blue">${icon('clock')}</span><span class="main"><span class="t">Zeit oder Raum ändern</span>${o.moved ? '<span class="s">Geändert</span>' : ''}</span>${icon('right', 'chev')}</button>
           </div>
-          <div class="list" data-movebox hidden style="padding:var(--s4)">
+          <div data-movebox hidden style="margin-top:12px">
             <div class="form">
-              <div class="grid2"><label class="field"><span>Von</span><input type="time" data-ms value="${o.starts}"></label><label class="field"><span>Bis</span><input type="time" data-me value="${o.ends}"></label></div>
+              <div class="grid2"><label class="field"><span>Beginn</span><input type="time" data-ms value="${o.starts}"></label><label class="field"><span>Ende</span><input type="time" data-me value="${o.ends}"></label></div>
               <label class="field"><span>Raum</span><input data-mr value="${esc(o.room)}" maxlength="60" placeholder="${esc(sr.room || 'Raum')}"></label>
               <div class="btn-row"><button class="btn" data-mreset ${o.moved ? '' : 'disabled'}>Zurücksetzen</button><button class="btn primary" data-msave>Übernehmen</button></div>
             </div>
           </div>
 
-          <button class="btn ghost" data-series>${icon('pencil', 'sm')}Ganze Terminreihe bearbeiten</button>
+          <div class="group" style="margin-top:22px"><button class="cell accent" data-series><span class="main"><span class="t">Terminreihe bearbeiten</span></span></button></div>
+          <div class="gf">Ändert alle Wochen dieses Termins, z. B. Raum oder Uhrzeit.</div>
         </div>`;
         bind();
       };
@@ -97,6 +94,7 @@ export function openOcc(key) {
         const pct = b.querySelector('[data-pct]');
         const setVal = (v, save) => {
           range.value = v; range.style.setProperty('--p', v + '%'); pct.textContent = v + ' %';
+          if (!save && Number(v) % 25 === 0) haptic();
           if (save && Number(v) !== get().progress) { patchOcc(get(), { progress: Number(v) }); haptic(); }
         };
         range.addEventListener('input', () => setVal(range.value, false));
@@ -108,7 +106,7 @@ export function openOcc(key) {
           patchOcc(get(), { stars: v });
           haptic();
           b.querySelectorAll('[data-star]').forEach((y) => y.classList.toggle('on', v != null && Number(y.dataset.star) <= v));
-          b.querySelector('[data-starhint]').textContent = ['Noch nicht bewertet', 'Gar nicht', 'Wackelig', 'Geht so', 'Ziemlich gut', 'Sitzt'][v || 0];
+          b.querySelector('[data-starhint]').textContent = ['Noch nicht bewertet', 'Gar nicht', 'Wackelig', 'Geht so', 'Ziemlich sicher', 'Sitzt'][v || 0];
         }));
         const note = b.querySelector('[data-note]');
         note.addEventListener('input', () => { pendingNote = note.value; clearTimeout(noteTimer); noteTimer = setTimeout(flushNote, 600); });
@@ -157,7 +155,7 @@ export function openSeries(existing, preset = {}) {
   let mode = v.once_on ? 'once' : 'weekly';
 
   sheet({
-    title: existing ? 'Termin bearbeiten' : 'Neuer Termin',
+    title: existing ? 'Termin bearbeiten' : 'Neuer Termin', primary: existing ? 'Sichern' : 'Hinzufügen',
     render(b, api) {
       const labels = Array.isArray(sem.parity_labels) ? sem.parity_labels : ['Woche A', 'Woche B'];
       b.innerHTML = `<div class="form">
@@ -183,7 +181,7 @@ export function openSeries(existing, preset = {}) {
         </div>
         <div data-err></div>
         <button class="btn primary" data-save>${existing ? 'Speichern' : 'Termin anlegen'}</button>
-        ${existing ? `<button class="btn danger" data-del>${icon('trash', 'sm')}Terminreihe löschen</button>` : ''}
+        ${existing ? `<div class="list" style="margin-top:12px"><button class="row danger" data-del><span class="main"><span class="t">Terminreihe löschen</span></span></button></div>` : ''}
       </div>`;
       const showMode = () => {
         b.querySelector('[data-weekly]').hidden = mode !== 'weekly';
@@ -302,7 +300,7 @@ export function openSubject(existing, semId, onSaved) {
   const used = new Set(subjectsOf(sem.id).map((s) => s.color));
   let color = existing?.color || COLORS.find((c) => !used.has(c)) || 'blue';
   sheet({
-    title: existing ? 'Fach bearbeiten' : 'Neues Fach',
+    title: existing ? 'Fach bearbeiten' : 'Neues Fach', primary: existing ? 'Sichern' : 'Hinzufügen',
     render(b, api) {
       b.innerHTML = `<div class="form">
         <label class="field"><span>Name</span><input data-name value="${esc(existing?.name || '')}" maxlength="80" placeholder="z. B. Mathe 1" autocomplete="off"></label>
@@ -310,7 +308,7 @@ export function openSubject(existing, semId, onSaved) {
         <div class="field"><span>Farbe</span><div class="swatches">${COLORS.map((c) => `<button data-c="${c}" data-color="${c}" aria-label="${COLOR_NAMES[c]}" aria-pressed="${c === color}"></button>`).join('')}</div></div>
         <div data-err></div>
         <button class="btn primary" data-save>${existing ? 'Speichern' : 'Fach anlegen'}</button>
-        ${existing ? `<button class="btn danger" data-del>${icon('trash', 'sm')}Fach löschen</button>` : ''}
+        ${existing ? `<div class="list" style="margin-top:12px"><button class="row danger" data-del><span class="main"><span class="t">Fach löschen</span></span></button></div>` : ''}
       </div>`;
       b.querySelectorAll('[data-color]').forEach((x) => x.addEventListener('click', () => {
         color = x.dataset.color;
@@ -344,7 +342,7 @@ export function openExam(existing, preset = {}) {
   const subs = sem ? subjectsOf(sem.id) : [];
   const v = existing ? { ...existing } : { kind: 'exam', title: '', subject_id: preset.subject_id || null, on_date: '', until_date: null, starts_at: null, ends_at: null, room: '', note: '', remind: true };
   sheet({
-    title: existing ? 'Bearbeiten' : 'Prüfung oder Frist',
+    title: existing ? 'Bearbeiten' : 'Prüfung oder Frist', primary: existing ? 'Sichern' : 'Hinzufügen',
     render(b, api) {
       b.innerHTML = `<div class="form">
         <label class="field"><span>Art</span><select data-f="kind">${Object.entries(S.EXAM_KINDS).map(([k, x]) => `<option value="${k}" ${k === v.kind ? 'selected' : ''}>${x.label}</option>`).join('')}</select></label>
@@ -358,7 +356,7 @@ export function openExam(existing, preset = {}) {
         <div class="list"><label class="row"><span class="ibox red">${icon('bell')}</span><span class="main"><span class="t" style="display:block">Erinnern</span><span class="s" style="display:block" data-remindhint></span></span>${sw('remind', v.remind)}</label></div>
         <div data-err></div>
         <button class="btn primary" data-save>${existing ? 'Speichern' : 'Hinzufügen'}</button>
-        ${existing ? `<button class="btn danger" data-del>${icon('trash', 'sm')}Löschen</button>` : ''}
+        ${existing ? `<div class="list" style="margin-top:12px"><button class="row danger" data-del><span class="main"><span class="t">Löschen</span></span></button></div>` : ''}
       </div>`;
       const f = (n) => b.querySelector(`[data-f="${n}"]`);
       const upd = () => {
@@ -408,24 +406,25 @@ export function openExam(existing, preset = {}) {
 // ======================= STUNDENPLAN BEARBEITEN (Seite) =======================
 export function renderTTEditor(el) {
   const sem = currentSemester();
-  if (!sem) { el.innerHTML = `<div class="wrap"><button class="back" data-act="back">${icon('left')}Zurück</button><div class="empty"><h3>Noch kein Semester</h3><p>Lege zuerst ein Semester an.</p><button class="btn small primary" data-act="newSemester">Semester anlegen</button></div></div>`; return; }
+  if (!sem) { el.innerHTML = `${navBar({ left: backBtn() })}<div class="wrap"><div class="empty"><h3>Noch kein Semester</h3><p>Lege zuerst ein Semester an.</p><button class="btn small primary" data-act="newSemester">Semester anlegen</button></div></div>`; return; }
   const subs = subjectsOf(sem.id);
   const order = (s) => (s.once_on ? 10 : s.weekday) * 10000 + S.toMin(s.starts_at);
-  el.innerHTML = `<div class="wrap">
-    <div class="topbar"><button class="back" data-act="back">${icon('left')}Zurück</button></div>
-    <div class="eyebrow">${esc(sem.name)}</div><h1 class="title-xl">Stundenplan</h1>
-    <p class="sub">Lege jeden wiederkehrenden Termin einmal an – die Wochen ergeben sich daraus.</p>
+  el.innerHTML = `
+    ${navBar({ title: 'Stundenplan', left: backBtn(), right: '<button class="nav-btn" data-act="newSubject">Fach +</button>' })}
+    ${largeTitle('Stundenplan', esc(sem.name))}
+    <div class="wrap">
+    <p class="gf" style="margin-top:0">Trag jeden wiederkehrenden Termin einmal ein – alle Wochen ergeben sich daraus. Tippe einen Termin an, um ihn zu ändern.</p>
     ${subs.map((s) => {
       const list = store.data.series.filter((x) => x.subject_id === s.id).sort((a, b) => order(a) - order(b));
-      return `<div class="section-h"><h2 style="display:flex;align-items:center;gap:8px"><span class="dot" data-c="${s.color}"></span>${esc(s.code ? s.code + ' · ' : '')}${esc(s.name)}</h2><button class="link" data-act="editSubject" data-id="${s.id}">Bearbeiten</button></div>
+      return `<div class="gh"><span style="display:flex;align-items:center;gap:8px"><span class="dot" data-c="${s.color}"></span>${esc(s.name)}</span><button class="link" data-act="editSubject" data-id="${s.id}">Fach bearbeiten</button></div>
       <div class="list">${list.map((x) => `<button class="row" data-act="editSeries" data-id="${x.id}">
         <span class="main"><span class="t" style="display:block">${x.once_on ? fmtDate(x.once_on) : WD_LONG[x.weekday - 1]} · ${S.hhmm(x.starts_at)}–${S.hhmm(x.ends_at)}</span>
         <span class="s" style="display:block">${[S.KINDS[x.kind]?.label, x.room, x.group_label, x.weeks_rule === 'A' || x.weeks_rule === 'B' ? S.parityLabel(sem, x.weeks_rule) : x.weeks_rule === 'custom' ? `${(x.custom_weeks || []).length} ausgewählte Wochen` : '', x.valid_from ? 'ab ' + fmtDate(x.valid_from, { weekday: false }) : '', x.valid_until ? 'bis ' + fmtDate(x.valid_until, { weekday: false }) : '', x.mandatory ? 'Pflicht' : ''].filter(Boolean).map(esc).join(' · ')}</span></span>
         ${icon('right', 'sm chev')}</button>`).join('')}
-        <button class="row" data-act="newSeries" data-subject="${s.id}"><span class="ibox">${icon('plus')}</span><span class="main"><span class="t" style="color:var(--accent)">Termin hinzufügen</span></span></button>
+        <button class="row" data-act="newSeries" data-subject="${s.id}"><span class="main"><span class="t" style="color:var(--accent)">Termin hinzufügen</span></span></button>
       </div>`;
     }).join('')}
-    <div style="margin-top:var(--s5)"><button class="btn primary" data-act="newSubject">${icon('plus', 'sm')}Fach hinzufügen</button></div>
+    <div class="list" style="margin-top:22px"><button class="row" data-act="newSubject"><span class="main"><span class="t" style="color:var(--accent)">Neues Fach hinzufügen</span></span></button></div>
   </div>`;
 }
 
@@ -437,7 +436,7 @@ const WEEK_OPTS = (hasParity, labels) => [
 
 export function renderSemesterEditor(el, semId) {
   const sem = store.data.semesters.find((s) => s.id === semId) || currentSemester();
-  if (!sem) { el.innerHTML = `<div class="wrap"><button class="back" data-act="back">${icon('left')}Zurück</button></div>`; return; }
+  if (!sem) { el.innerHTML = navBar({ left: backBtn() }); return; }
   const labels = Array.isArray(sem.parity_labels) ? sem.parity_labels : ['Woche A', 'Woche B'];
   const hasParity = (sem.weeks || []).some((w) => w.p);
   const weeks = [];
@@ -445,21 +444,22 @@ export function renderSemesterEditor(el, semId) {
     const w = (sem.weeks || []).find((x) => x.w === m) || { w: m, k: 'lecture', p: null };
     weeks.push(w);
   }
-  el.innerHTML = `<div class="wrap">
-    <div class="topbar"><button class="back" data-act="back">${icon('left')}Zurück</button></div>
-    <div class="eyebrow">Semester</div><h1 class="title-xl">${esc(sem.name)}</h1>
-    <div class="card pad form" style="margin-top:var(--s4)">
+  el.innerHTML = `
+    ${navBar({ title: sem.name, left: backBtn() })}
+    ${largeTitle(sem.name, 'Semester')}
+    <div class="wrap">
+    <div class="form" style="margin-top:8px">
       <label class="field"><span>Name</span><input data-sf="name" value="${esc(sem.name)}" maxlength="80"></label>
       <div class="grid2"><label class="field"><span>Beginn</span><input type="date" data-sf="starts_on" value="${sem.starts_on}"></label><label class="field"><span>Ende</span><input type="date" data-sf="ends_on" value="${sem.ends_on}"></label></div>
-      <p class="hint" style="margin:0">Das Ende sollte nach dem letzten Prüfungszeitraum liegen.</p>
+      <p class="gf" style="margin:-8px 0 0">Das Ende sollte nach dem letzten Prüfungszeitraum liegen.</p>
     </div>
-    <div class="section-h"><h2>Freie Tage & Ferien</h2><button class="link" data-act="addHoliday" data-id="${sem.id}">Hinzufügen</button></div>
+    <div class="gh">Freie Tage & Ferien<button class="link" data-act="addHoliday" data-id="${sem.id}">Hinzufügen</button></div>
     <div class="list">${(sem.holidays || []).length ? sem.holidays.map((h, i) => `<div class="row"><span class="main"><span class="t" style="display:block">${esc(h.name || 'Frei')}</span><span class="s" style="display:block">${fmtRange(h.from, h.to || h.from)}</span></span><button class="icon-btn plain" data-act="delHoliday" data-id="${sem.id}" data-i="${i}" aria-label="Entfernen">${icon('trash', 'sm')}</button></div>`).join('') : '<div class="row"><span class="s">Keine freien Tage eingetragen.</span></div>'}</div>
-    <div class="section-h"><h2>Wochen</h2></div>
-    <p class="hint" style="margin:-4px 4px 8px">Regelmäßige Termine finden nur in Vorlesungswochen statt.${hasParity ? ` ${esc(labels[0])} und ${esc(labels[1])} wechseln sich ab.` : ''}</p>
+    <div class="gh">Wochen</div>
+    <p class="gf" style="margin:-2px 0 8px">Regelmäßige Termine finden nur in Vorlesungswochen statt.${hasParity ? ` ${esc(labels[0])} und ${esc(labels[1])} wechseln sich ab.` : ''}</p>
     <div class="list">${weeks.map((w) => `<div class="weekrow"><div><div class="t">KW ${S.isoWeek(w.w)}</div><div class="s">${fmtRange(w.w, S.addDays(w.w, 6))}</div></div>
       <select data-week="${w.w}" aria-label="Art der Woche KW ${S.isoWeek(w.w)}">${WEEK_OPTS(true, labels).map(([val, l]) => `<option value="${val}" ${val === w.k + '|' + (w.p || '') ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>`).join('')}</div>
-    <div style="margin-top:var(--s5)"><button class="btn danger" data-act="delSemester" data-id="${sem.id}">${icon('trash', 'sm')}Semester löschen</button></div>
+    <div class="list" style="margin-top:28px"><button class="row danger" data-act="delSemester" data-id="${sem.id}"><span class="main"><span class="t">Semester löschen</span></span></button></div>
   </div>`;
   const save = (patch) => put('semesters', { ...store.data.semesters.find((s) => s.id === sem.id), ...patch });
   el.querySelectorAll('[data-sf]').forEach((inp) => inp.addEventListener('change', () => {
@@ -483,7 +483,7 @@ export function renderSemesterEditor(el, semId) {
 export function addHoliday(semId) {
   const sem = store.data.semesters.find((s) => s.id === semId);
   sheet({
-    title: 'Freier Tag',
+    title: 'Freier Tag', primary: 'Hinzufügen',
     render(b, api) {
       b.innerHTML = `<div class="form">
         <label class="field"><span>Name</span><input data-n maxlength="60" placeholder="z. B. Feiertag, Exkursion"></label>
@@ -521,7 +521,7 @@ export async function delSemester(semId) {
 /** Neues Semester: Vorlage oder eigenes. */
 export function newSemester({ onDone } = {}) {
   sheet({
-    title: 'Neues Semester',
+    title: 'Neues Semester', primary: 'Anlegen',
     render(b, api) {
       const t = today();
       const presets = SEMESTER_PRESETS.filter((p) => p.semester.ends_on >= t && !store.data.semesters.some((s) => s.name === p.semester.name));

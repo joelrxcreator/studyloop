@@ -1,5 +1,5 @@
 // Studyloop Service Worker: immer frisch laden (Updates kommen von selbst), offline Kopie, Web Push.
-const CACHE = 'studyloop-v3';
+const CACHE = 'studyloop-v4';
 const CORE = ['./', 'index.html', 'css/app.css', 'vendor/supabase.js', 'js/app.js', 'js/store.js', 'js/schedule.js', 'js/ui.js', 'js/icons.js',
   'js/views.js', 'js/editors.js', 'js/settings.js', 'js/auth.js', 'js/push.js', 'js/ctx.js', 'js/presets.js', 'js/config.js',
   'icons/icon-192.png', 'icons/apple-touch-icon.png', 'manifest.webmanifest'];

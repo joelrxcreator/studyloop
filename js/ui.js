@@ -20,6 +20,10 @@ export function fmtDayTitle(s) {
   const [d, m] = dm(s);
   return `${WD_LONG[S.weekday(s) - 1]}, ${d}. ${MON[m]}`;
 }
+export function fmtLong(s, { weekday = true } = {}) {
+  const [d, m] = dm(s);
+  return `${weekday ? WD_LONG[S.weekday(s) - 1] + ', ' : ''}${d}. ${MON_LONG[m]}`;
+}
 export function fmtRange(a, b) {
   const [d1, m1, y1] = dm(a), [d2, m2, y2] = dm(b);
   if (a === b) return `${d1}. ${MON[m1]}`;
@@ -74,15 +78,17 @@ export const openSheets = () => sheets.length;
  * Öffnet ein Sheet von unten.
  * render(body, api) füllt den Inhalt. api.close() schließt.
  */
-export function sheet({ title = '', render, full = false, onClose, headerAction } = {}) {
+export function sheet({ title = '', render, full = false, onClose, primary = null, bare = false, done = 'Fertig' } = {}) {
   const wrap = document.createElement('div');
   wrap.className = 'sheet-wrap';
   wrap.style.zIndex = 60 + sheets.length * 2;
+  const left = primary ? '<button class="nav-btn" data-close>Abbrechen</button>' : '';
+  const right = bare ? '' : primary ? `<button class="nav-btn bold" data-primary>${esc(primary)}</button>` : `<button class="nav-btn bold" data-close>${esc(done)}</button>`;
   wrap.innerHTML = `
     <div class="sheet-backdrop"></div>
-    <section class="sheet ${full ? 'full' : ''}" role="dialog" aria-modal="true" aria-label="${esc(title)}">
+    <section class="sheet ${full ? 'full' : ''} ${primary ? 'has-primary' : ''}" role="dialog" aria-modal="true" aria-label="${esc(title)}">
       <div class="grab"></div>
-      <header class="sheet-h"><h2>${esc(title)}</h2>${headerAction || ''}<button class="icon-btn plain" data-close aria-label="Schließen">${icon('x')}</button></header>
+      <header class="sheet-h"><div class="l">${left}</div><h2>${esc(bare ? '' : title)}</h2><div class="r">${right}</div></header>
       <div class="sheet-b"></div>
     </section>`;
   document.body.appendChild(wrap);
@@ -98,20 +104,22 @@ export function sheet({ title = '', render, full = false, onClose, headerAction 
       document.activeElement?.blur?.();
       wrap.classList.remove('open');
       sheets.splice(sheets.indexOf(api), 1);
-      setTimeout(() => wrap.remove(), 320);
+      setTimeout(() => wrap.remove(), 420);
       onClose?.(result);
     },
   };
   sheets.push(api);
   wrap.querySelector('.sheet-backdrop').addEventListener('click', () => api.close());
-  wrap.querySelector('[data-close]').addEventListener('click', () => api.close());
+  wrap.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => api.close()));
+  wrap.querySelector('[data-primary]')?.addEventListener('click', () => body.querySelector('[data-save]')?.click());
   render(body, api);
   // Nach unten wischen schließt
   let y0 = null, dy = 0, fromBody = false;
   const start = (e) => {
     const t = e.target;
-    fromBody = !t.closest('.grab, .sheet-h');
-    if (fromBody && (body.scrollTop > 0 || t.closest('input, textarea, select, .range, .stars, .seg, .swatches'))) { y0 = null; return; }
+    fromBody = !t.closest('.sheet-h');
+    if (t.closest('button') && !fromBody) { /* Kopf-Buttons: Wischen trotzdem erlaubt */ }
+    if (fromBody && (body.scrollTop > 0 || t.closest('input, textarea, select, .range, .stars, .seg, .swatches, .chips'))) { y0 = null; return; }
     y0 = e.touches[0].clientY; dy = 0;
   };
   const move = (e) => {
@@ -156,14 +164,15 @@ export function confirmDialog({ title, text, confirm = 'OK', cancel = 'Abbrechen
   return new Promise((resolve) => {
     let done = false;
     sheet({
-      title,
+      title, bare: true,
       onClose: () => { if (!done) resolve(false); },
       render(b, api) {
         b.innerHTML = `
-          <div class="form">
-            ${text ? `<p class="sub" style="margin:0">${text}</p>` : ''}
-            ${typeWord ? `<label class="field"><span>Zum Bestätigen „${esc(typeWord)}“ eingeben</span><input autocomplete="off" autocapitalize="characters" spellcheck="false" data-word></label>` : ''}
-            <div class="btn-row"><button class="btn" data-no>${esc(cancel)}</button><button class="btn ${danger ? 'danger' : 'primary'}" data-yes ${typeWord ? 'disabled' : ''}>${esc(confirm)}</button></div>
+          <div class="form" style="gap:10px">
+            <div class="alert-text"><h3>${esc(title)}</h3>${text ? `<p>${text}</p>` : ''}</div>
+            ${typeWord ? `<label class="field" style="margin-bottom:6px"><span>Zum Bestätigen „${esc(typeWord)}“ eingeben</span><input autocomplete="off" autocapitalize="characters" spellcheck="false" data-word></label>` : ''}
+            <button class="btn ${danger ? 'danger' : 'primary'}" data-yes ${typeWord ? 'disabled' : ''} style="${danger ? 'font-weight:600' : ''}">${esc(confirm)}</button>
+            <button class="btn" data-no style="background:var(--bg2)">${esc(cancel)}</button>
           </div>`;
         const yes = b.querySelector('[data-yes]');
         if (typeWord) b.querySelector('[data-word]').addEventListener('input', (e) => { yes.disabled = e.target.value.trim().toUpperCase() !== typeWord; });
@@ -201,4 +210,21 @@ export function download(filename, text) {
   document.body.appendChild(a);
   a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+
+// ---------------- Navigationsleiste & großer Titel ----------------
+export function navBar({ title = '', left = '', right = '' } = {}) {
+  return `<header class="nav"><div class="nav-l">${left}</div><div class="nav-title">${esc(title)}</div><div class="nav-r">${right}</div></header>`;
+}
+export function largeTitle(title, sub = '', extra = '') {
+  return `<div class="lt"><div class="lt-row"><h1>${esc(title)}</h1>${extra}</div>${sub ? `<p class="lt-sub">${sub}</p>` : ''}</div>`;
+}
+export const backBtn = (label = 'Zurück') => `<button class="nav-btn back" data-act="back">${icon('left')}${esc(label)}</button>`;
+
+// ---------------- Einmalige Tipps ----------------
+export function tipSeen(id) { try { return localStorage.getItem('sl.tip.' + id) === '1'; } catch { return true; } }
+export function tipDismiss(id) { try { localStorage.setItem('sl.tip.' + id, '1'); } catch { /* egal */ } }
+export function tip(id, ic, title, text) {
+  if (tipSeen(id)) return '';
+  return `<div class="tip"><span class="sq indigo">${icon(ic)}</span><div><b>${esc(title)}</b><p>${text}</p></div><button class="x" data-act="tip" data-id="${id}" aria-label="Tipp schließen">${icon('x')}</button></div>`;
 }
