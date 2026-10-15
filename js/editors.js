@@ -8,6 +8,16 @@ import { uuid, SEMESTER_PRESETS, buildFromPreset } from './presets.js';
 import { pushState } from './push.js';
 
 const KIND_OPTS = Object.entries(S.KINDS).map(([k, v]) => [k, v.label]);
+const short = (l) => l.replace(' Woche', '').replace('Woche ', '');
+/** Alle Wochen des Semesters, in denen regelmäßige Termine stattfinden können. */
+function lectureWeeks(sem, all = false) {
+  const out = [];
+  for (let m = S.mondayOf(sem.starts_on); m <= sem.ends_on; m = S.addDays(m, 7)) {
+    const w = (sem.weeks || []).find((x) => x.w === m);
+    if (all || !w || w.k === 'lecture') out.push({ w: m, p: w?.p || null });
+  }
+  return out;
+}
 
 // ======================= EINZELNER TERMIN =======================
 export function openOcc(key) {
@@ -156,7 +166,9 @@ export function openSeries(existing, preset = {}) {
         <div class="field"><span>Wiederholung</span>${seg('mode', [['weekly', 'Jede Woche'], ['once', 'Einmalig']], mode)}</div>
         <div data-weekly class="form">
           <div class="field"><span>Wochentag</span>${seg('weekday', WD.map((d, i) => [i + 1, d]), v.weekday)}</div>
-          ${hasParity ? `<div class="field"><span>In welchen Wochen?</span>${seg('weeks_rule', [['all', 'Alle'], ['A', labels[0].replace(' Woche', '').replace('Woche ', '')], ['B', labels[1].replace(' Woche', '').replace('Woche ', '')]], v.weeks_rule === 'custom' ? 'all' : v.weeks_rule)}<span class="hint">${esc(labels[0])} / ${esc(labels[1])} wie im Semesterplan</span></div>` : ''}
+          <div class="field"><span>In welchen Wochen?</span>${seg('weeks_rule', [['all', 'Jede'], ...(hasParity ? [['A', short(labels[0])], ['B', short(labels[1])]] : []), ['custom', 'Auswahl']], v.weeks_rule)}
+            <span class="hint" data-wrhint></span></div>
+          <div class="chips" data-customweeks></div>
           <div class="grid2"><label class="field"><span>Ab (optional)</span><input type="date" data-f="valid_from" value="${v.valid_from || ''}" min="${sem.starts_on}" max="${sem.ends_on}"></label>
           <label class="field"><span>Bis (optional)</span><input type="date" data-f="valid_until" value="${v.valid_until || ''}" min="${sem.starts_on}" max="${sem.ends_on}"></label></div>
         </div>
@@ -179,7 +191,24 @@ export function openSeries(existing, preset = {}) {
         b.querySelector('[data-once]').hidden = mode !== 'once';
       };
       showMode();
-      bindSegs(b, (name, val) => { if (name === 'mode') { mode = val; showMode(); } });
+      const custom = new Set(v.custom_weeks || []);
+      const drawWeeks = () => {
+        const rule = segValue(b, 'weeks_rule');
+        const box = b.querySelector('[data-customweeks]');
+        box.hidden = rule !== 'custom';
+        b.querySelector('[data-wrhint]').textContent = rule === 'custom' ? 'Tippe die Wochen an, in denen der Termin stattfindet.'
+          : rule === 'all' ? 'In jeder Vorlesungswoche' : `Nur in der ${labels[rule === 'A' ? 0 : 1]} – wie im Semesterplan`;
+        if (rule !== 'custom') return;
+        const all = b.querySelector('[data-sw="every_week"]').checked;
+        box.innerHTML = lectureWeeks(sem, all).map((w) => `<button type="button" class="pill-toggle" data-wk="${w.w}" aria-pressed="${custom.has(w.w)}" style="padding:0 12px">KW ${S.isoWeek(w.w)}<span class="muted" style="font-weight:500;margin-left:6px">${fmtDate(w.w, { weekday: false })}</span></button>`).join('');
+        box.querySelectorAll('[data-wk]').forEach((x) => x.addEventListener('click', () => {
+          if (custom.has(x.dataset.wk)) custom.delete(x.dataset.wk); else custom.add(x.dataset.wk);
+          x.setAttribute('aria-pressed', String(custom.has(x.dataset.wk)));
+        }));
+      };
+      drawWeeks();
+      b.querySelector('[data-sw="every_week"]').addEventListener('change', drawWeeks);
+      bindSegs(b, (name, val) => { if (name === 'mode') { mode = val; showMode(); } if (name === 'weeks_rule') drawWeeks(); });
       b.querySelector('[data-f="subject_id"]').addEventListener('change', (e) => {
         if (e.target.value === '__new') { e.target.value = v.subject_id; openSubject(null, sem.id, (sub) => { api.close(); openSeries(existing ? { ...existing, subject_id: sub.id } : null, { subject_id: sub.id }); }); }
       });
@@ -198,7 +227,7 @@ export function openSeries(existing, preset = {}) {
         };
         if (mode === 'weekly') {
           Object.assign(row, {
-            once_on: null, weekday: Number(segValue(b, 'weekday')), weeks_rule: hasParity ? segValue(b, 'weeks_rule') : (existing?.weeks_rule === 'custom' ? 'custom' : 'all'),
+            once_on: null, weekday: Number(segValue(b, 'weekday')), weeks_rule: segValue(b, 'weeks_rule'), custom_weeks: segValue(b, 'weeks_rule') === 'custom' ? [...custom].sort() : [],
             valid_from: f('valid_from') || null, valid_until: f('valid_until') || null, every_week: b.querySelector('[data-sw="every_week"]').checked,
           });
         } else Object.assign(row, { once_on: f('once_on') || null, weekday: null, valid_from: null, valid_until: null, every_week: false });
@@ -207,10 +236,11 @@ export function openSeries(existing, preset = {}) {
         if (S.toMin(row.ends_at) <= S.toMin(row.starts_at)) return err('Das Ende muss nach dem Beginn liegen.');
         if (mode === 'once' && !S.isValidDate(row.once_on || '')) return err('Bitte ein Datum wählen.');
         if (row.valid_from && row.valid_until && row.valid_until < row.valid_from) return err('„Bis“ liegt vor „Ab“.');
+        if (mode === 'weekly' && row.weeks_rule === 'custom' && !row.custom_weeks.length) return err('Bitte mindestens eine Woche auswählen.');
 
         // Bei Änderung von Tag/Zeit/Wochen einer Reihe mit Einträgen: ab wann soll es gelten?
         if (existing && mode === 'weekly' && !existing.once_on) {
-          const changed = row.weekday !== existing.weekday || row.starts_at !== S.hhmm(existing.starts_at) || row.weeks_rule !== existing.weeks_rule;
+          const changed = row.weekday !== existing.weekday || row.starts_at !== S.hhmm(existing.starts_at) || row.weeks_rule !== existing.weeks_rule || JSON.stringify(row.custom_weeks) !== JSON.stringify(existing.custom_weeks || []);
           const t = today();
           const hasPast = store.data.occurrences.some((o) => o.series_id === existing.id && o.on_date < t);
           const startedBefore = (existing.valid_from || sem.starts_on) < t;
@@ -390,7 +420,7 @@ export function renderTTEditor(el) {
       return `<div class="section-h"><h2 style="display:flex;align-items:center;gap:8px"><span class="dot" data-c="${s.color}"></span>${esc(s.code ? s.code + ' · ' : '')}${esc(s.name)}</h2><button class="link" data-act="editSubject" data-id="${s.id}">Bearbeiten</button></div>
       <div class="list">${list.map((x) => `<button class="row" data-act="editSeries" data-id="${x.id}">
         <span class="main"><span class="t" style="display:block">${x.once_on ? fmtDate(x.once_on) : WD_LONG[x.weekday - 1]} · ${S.hhmm(x.starts_at)}–${S.hhmm(x.ends_at)}</span>
-        <span class="s" style="display:block">${[S.KINDS[x.kind]?.label, x.room, x.group_label, x.weeks_rule === 'A' || x.weeks_rule === 'B' ? S.parityLabel(sem, x.weeks_rule) : '', x.valid_from ? 'ab ' + fmtDate(x.valid_from, { weekday: false }) : '', x.valid_until ? 'bis ' + fmtDate(x.valid_until, { weekday: false }) : '', x.mandatory ? 'Pflicht' : ''].filter(Boolean).map(esc).join(' · ')}</span></span>
+        <span class="s" style="display:block">${[S.KINDS[x.kind]?.label, x.room, x.group_label, x.weeks_rule === 'A' || x.weeks_rule === 'B' ? S.parityLabel(sem, x.weeks_rule) : x.weeks_rule === 'custom' ? `${(x.custom_weeks || []).length} ausgewählte Wochen` : '', x.valid_from ? 'ab ' + fmtDate(x.valid_from, { weekday: false }) : '', x.valid_until ? 'bis ' + fmtDate(x.valid_until, { weekday: false }) : '', x.mandatory ? 'Pflicht' : ''].filter(Boolean).map(esc).join(' · ')}</span></span>
         ${icon('right', 'sm chev')}</button>`).join('')}
         <button class="row" data-act="newSeries" data-subject="${s.id}"><span class="ibox">${icon('plus')}</span><span class="main"><span class="t" style="color:var(--accent)">Termin hinzufügen</span></span></button>
       </div>`;

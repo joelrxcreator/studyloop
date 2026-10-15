@@ -345,6 +345,41 @@ await test('Stundenplan: Schnellzugriff öffnen/schließen, Wochen blättern, Be
   await ctx.close();
 });
 
+await test('Bestimmte Wochen auswählen (z. B. Praktikum nur in einzelnen Wochen)', async () => {
+  const { page, errors, ctx, mock } = await ready();
+  await page.locator('[data-act="settings"]').click();
+  await page.locator('[data-act="editTT"]').click();
+  await page.waitForTimeout(400);
+  await page.locator('.page.in').last().getByText('Montag · 15:15–16:45').click();
+  await page.waitForSelector('.sheet-wrap.open');
+  await page.locator('[data-seg="weeks_rule"] [data-v="custom"]').click();
+  await page.locator('[data-save]').click();
+  assert.match(await page.locator('.err').innerText(), /mindestens eine Woche/);
+  await page.locator('[data-wk="2026-10-19"]').click();
+  await page.locator('[data-wk="2026-11-16"]').click();
+  await page.waitForTimeout(200);
+  await shot(page, '26-wochen-auswahl');
+  await overflowCheck(page, 'Wochen-Auswahl');
+  await page.locator('[data-save]').click();
+  await page.waitForTimeout(600);
+  const sr = mock.db.series.find((x) => x.weekday === 1 && x.starts_at.startsWith('15:15'));
+  assert.equal(sr.weeks_rule, 'custom');
+  assert.deepEqual(sr.custom_weeks, ['2026-10-19', '2026-11-16']);
+  assert.match(await page.locator('.page.in').last().innerText(), /2 ausgewählte Wochen/);
+  // Stundenplan: KW43 ja, KW45 nein
+  await page.locator('.page.in').last().locator('[data-act="back"]').click();
+  await page.locator('.page.in').last().locator('[data-act="back"]').click();
+  await page.waitForTimeout(400);
+  await page.locator('[data-fab]').click();
+  await page.locator('[data-act="tt"][data-d="7"]').click();
+  assert.equal(await page.locator('.tt-item', { hasText: 'B114' }).count(), 1, 'KW43 mit Praktikum');
+  await page.locator('[data-act="tt"][data-d="7"]').click();
+  await page.locator('[data-act="tt"][data-d="7"]').click();
+  assert.equal(await page.locator('.tt-item', { hasText: 'B114' }).count(), 0, 'KW45 ohne Praktikum');
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 await test('Einstellungen, Hell/Dunkel, Mitteilungen-Hinweis, Löschen braucht Bestätigung', async () => {
   const { page, errors, ctx, mock } = await ready();
   await page.locator('[data-act="settings"]').click();

@@ -520,3 +520,4 @@ textarea { height: auto; min-height: 96px; line-height: 1.45; padding: 12px 14px
   .tt-item { font-size: .74rem; } .tt-item b { font-size: .82rem; } .tt-item .tm { font-size: .68rem; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition-duration: .01ms !important; animation-duration: .01ms !important; } }
+.pill-toggle[aria-pressed="true"] .muted { color: inherit; opacity: .75; }
