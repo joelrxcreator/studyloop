@@ -1,6 +1,6 @@
 // Studyloop – Start, Navigation, Gesten.
 import * as S from './schedule.js';
-import { store, sb, idx, onChange, onStatus, onError, setUser, load, pendingCount, patchOcc } from './store.js';
+import { store, sb, idx, onChange, onStatus, onError, setUser, load, pendingCount, patchOcc, resumeLive } from './store.js';
 import { icon } from './icons.js';
 import { toast, openSheets, closeAllSheets, tipDismiss, haptic } from './ui.js';
 import { ui, nav, today } from './ctx.js';
@@ -260,9 +260,13 @@ document.addEventListener('visibilitychange', () => {
   if (!store.user) return;
   // länger weg → zurück zum aktuellen Tag
   if (hiddenAt && Date.now() - hiddenAt > 20 * 60000 && !openSheets()) { ui.day = today(); ui.weekMon = S.mondayOf(today()); }
-  if (Date.now() - store.lastLoad > 30000) load({ quiet: true });
+  // zurück in der App → immer den aktuellen Stand vom Server holen (andere Geräte könnten etwas geändert haben)
+  if (Date.now() - store.lastLoad > 2000) load({ quiet: true });
+  resumeLive();
   scheduleRender();
 });
+window.addEventListener('pageshow', (e) => { if (e.persisted && store.user) { load({ quiet: true }); resumeLive(); } });
+window.addEventListener('online', () => { if (store.user) { load({ quiet: true }); resumeLive(); } });
 setInterval(() => {
   if (document.visibilityState !== 'visible' || !store.user) return;
   const t = today();

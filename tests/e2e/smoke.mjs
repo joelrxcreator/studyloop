@@ -8,6 +8,7 @@ for (const theme of (process.env.THEMES || 'light,dark').split(',')) {
   const mock = createMock();
   const ctx = await browser.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: 2, isMobile: W < 700, hasTouch: true, locale: 'de-DE', timezoneId: 'Europe/Berlin', colorScheme: theme });
   await ctx.route('https://ibmhbjwkkgjuzyztakmg.supabase.co/**', mock.handle);
+  await ctx.routeWebSocket(/ibmhbjwkkgjuzyztakmg\.supabase\.co\/realtime/, mock.ws);
   const p = await ctx.newPage();
   const errs = [];
   p.on('pageerror', (e) => errs.push(e.message));

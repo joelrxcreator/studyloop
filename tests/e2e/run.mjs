@@ -20,6 +20,7 @@ async function newApp({ width = 390, height = 844, theme = 'dark', time = '2026-
     locale: 'de-DE', timezoneId: 'Europe/Berlin', colorScheme: theme,
   });
   await ctx.route('https://ibmhbjwkkgjuzyztakmg.supabase.co/**', mock.handle);
+  await ctx.routeWebSocket(/ibmhbjwkkgjuzyztakmg\.supabase\.co\/realtime/, mock.ws);
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
@@ -452,6 +453,48 @@ await test('Fehlerfall: Server-Fehler wird wiederholt, kaputte Sicherung crasht 
   assert.equal(mock.db.subjects.length, 6, 'Fach ohne gültiges Semester nicht übernommen');
   assert.deepEqual(errors, []);
   await ctx.close();
+});
+
+await test('Zwei Geräte: Änderungen erscheinen live und nach Neustart überall gleich', async () => {
+  const mock = createMock();
+  const phone = await ready({ mock });
+  const pad = await newApp({ mock, width: 820, height: 1180 });
+  await pad.page.locator('[data-auth="in"]').click();
+  await pad.page.waitForSelector('.sheet-wrap.open input[name=email]');
+  await pad.page.fill('input[name=email]', 'joel@example.org');
+  await pad.page.fill('input[name=password]', 'geheim123');
+  await pad.page.locator('[data-submit]').click();
+  await pad.page.waitForSelector('.occ');
+  await pad.page.waitForTimeout(800);
+  const card = (p) => p.locator('.occ').first().innerText();
+  const setPct = async (p, v) => {
+    await p.locator('.occ').first().click();
+    await p.waitForSelector('.sheet-wrap.open [data-range]');
+    await p.waitForTimeout(400);
+    await setRange(p, v);
+    await p.waitForTimeout(700);
+    await p.locator('.sheet-h [data-close]').click();
+    await p.waitForTimeout(500);
+  };
+  // iPad ändert → iPhone zeigt es ohne Neuladen
+  await setPct(pad.page, 40);
+  await phone.page.waitForFunction(() => /40 %/.test(document.querySelector('.occ')?.textContent || ''), null, { timeout: 4000 });
+  // iPhone ändert denselben Termin → iPad übernimmt
+  await setPct(phone.page, 70);
+  await pad.page.waitForFunction(() => /70 %/.test(document.querySelector('.occ')?.textContent || ''), null, { timeout: 4000 });
+  assert.equal(mock.db.occurrences[0].progress, 70);
+  // Alles schließen und neu öffnen: überall der letzte Stand
+  await phone.page.reload(); await pad.page.reload();
+  await phone.page.waitForSelector('.occ'); await pad.page.waitForSelector('.occ');
+  await phone.page.waitForTimeout(800);
+  assert.match(await card(phone.page), /70 %/);
+  assert.match(await card(pad.page), /70 %/);
+  // nach dem Neustart läuft der Live-Abgleich weiter
+  await setPct(pad.page, 20);
+  await phone.page.waitForFunction(() => /20 %/.test(document.querySelector('.occ')?.textContent || ''), null, { timeout: 4000 });
+  assert.deepEqual(phone.errors, []);
+  assert.deepEqual(pad.errors, []);
+  await phone.ctx.close(); await pad.ctx.close();
 });
 
 await browser.close();

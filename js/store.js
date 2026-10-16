@@ -96,8 +96,12 @@ const persistQueue = () => { try { localStorage.setItem(queueKey(), JSON.stringi
 const loadQueue = () => { try { queue = JSON.parse(localStorage.getItem(queueKey()) || '[]'); } catch { queue = []; } };
 export const pendingCount = () => queue.length;
 
+const opKey = (op) => (op.op === 'up' ? keyOf(op.table, op.row) : KEYS[op.table].map((c) => op.match[c]).join('|'));
+let journal = null; // Änderungen seit Beginn des laufenden Ladevorgangs
+
 function enqueue(op) {
   op.k = op.table + '#' + (op.op === 'up' ? keyOf(op.table, op.row) : JSON.stringify(op.match));
+  if (journal) journal.push(op);
   const last = queue[queue.length - 1];
   // Schnelle Folge-Änderungen am selben Datensatz zusammenfassen (nur wenn ganz hinten und nicht in Arbeit)
   if (last && last.k === op.k && last.op === 'up' && op.op === 'up' && !(running && queue.length === 1)) queue[queue.length - 1] = op;
@@ -204,6 +208,13 @@ export function put(table, row) {
 
 /** Löscht einen Datensatz samt abhängigen Daten (lokal wie in der Datenbank per Kaskade). */
 export function remove(table, row) {
+  const match = dropLocal(table, row);
+  enqueue({ op: 'del', table, match });
+  emit();
+  saveCacheSoon();
+}
+
+function dropLocal(table, row) {
   const d = store.data;
   const match = Object.fromEntries(KEYS[table].map((k) => [k, row[k]]));
   if (table === 'semesters') {
@@ -222,9 +233,7 @@ export function remove(table, row) {
     d.occurrences = d.occurrences.filter((o) => o.series_id !== row.id);
   }
   applyLocal(d, { op: 'del', table, match });
-  enqueue({ op: 'del', table, match });
-  emit();
-  saveCacheSoon();
+  return match;
 }
 
 /** Mehrere Zeilen auf einmal (z. B. Vorlage übernehmen) – Reihenfolge Eltern → Kinder. */
@@ -273,10 +282,15 @@ async function fetchAll(table, build) {
 
 let lastLoadError = null;
 export const loadError = () => lastLoadError;
+let loadAgain = false;
 
 export async function load({ quiet = false } = {}) {
-  if (!store.user || store.loading) return;
+  if (!store.user) return;
+  if (store.loading) { loadAgain = true; return; }
   store.loading = true;
+  loadAgain = false;
+  journal = [];
+  const uid = store.user.id;
   try {
     const id = (q) => q.order('created_at', { ascending: true });
     const since = S.addDays(S.localDate(), -400);
@@ -287,12 +301,14 @@ export async function load({ quiet = false } = {}) {
       sb.from('settings').select('*').maybeSingle(),
     ]);
     if (settingsRes.error) throw Object.assign(new Error(settingsRes.error.message), { status: settingsRes.status });
+    if (store.user?.id !== uid) return false;
     const fresh = { semesters, subjects, series, occurrences, exams };
-    for (const op of queue) applyLocal(fresh, op); // eigene, noch nicht gesendete Änderungen behalten
+    // eigene Änderungen behalten: noch nicht gesendete und solche, die während des Ladens entstanden sind
+    for (const op of [...queue, ...journal]) applyLocal(fresh, op);
     store.data = fresh;
     store.activity = new Set(activity.map((a) => a.day));
     for (const op of queue) if (op.table === 'activity') store.activity.add(op.row.day);
-    const pendingSettings = queue.filter((o) => o.table === 'settings').pop();
+    const pendingSettings = [...queue, ...journal].filter((o) => o.table === 'settings').pop();
     if (pendingSettings) store.settings = S.normalizeSettings(pendingSettings.row.data);
     else if (settingsRes.data) store.settings = S.normalizeSettings(settingsRes.data.data);
     else putSettings({}); // erstes Mal: Standard-Einstellungen anlegen
@@ -311,7 +327,71 @@ export async function load({ quiet = false } = {}) {
     return false;
   } finally {
     store.loading = false;
+    journal = null;
+    if (loadAgain && store.user) setTimeout(() => load({ quiet: true }), 50);
   }
+}
+
+// ---------------- Live-Abgleich zwischen Geräten ----------------
+// Änderungen von anderen Geräten kommen per Supabase Realtime sofort an und werden direkt übernommen.
+// Nach einem Verbindungsabbruch (z. B. App im Hintergrund) wird einmal komplett neu geladen.
+let live = null;
+let liveSubscribedOnce = false;
+
+function onRemote(table, payload) {
+  if (!store.user || !store.loaded) return;
+  const ev = payload.eventType;
+  if (table === 'settings') {
+    if (ev === 'DELETE' || !payload.new?.data || queue.some((o) => o.table === 'settings')) return;
+    const next = S.normalizeSettings(payload.new.data);
+    if (JSON.stringify(next) === JSON.stringify(store.settings)) return;
+    store.settings = next;
+  } else {
+    const row = ev === 'DELETE' ? payload.old : payload.new;
+    if (!row || KEYS[table].some((c) => row[c] == null)) return;
+    if (ev !== 'DELETE' && row.user_id !== store.user.id) return;
+    const k = keyOf(table, row);
+    if (queue.some((o) => o.table === table && opKey(o) === k)) return; // eigene Änderung ist neuer
+    const local = store.data[table].find((r) => keyOf(table, r) === k);
+    if (ev === 'DELETE') {
+      if (!local) return;
+      dropLocal(table, row);
+    } else {
+      const clean = pick(table, row);
+      if (local && JSON.stringify(pick(table, local)) === JSON.stringify(clean)) return;
+      applyLocal(store.data, { op: 'up', table, row: clean });
+    }
+    if (journal) journal.push(ev === 'DELETE' ? { op: 'del', table, match: Object.fromEntries(KEYS[table].map((c) => [c, row[c]])) } : { op: 'up', table, row: pick(table, row) });
+  }
+  emit();
+  saveCacheSoon();
+}
+
+function startLive() {
+  stopLive();
+  if (!store.user || typeof sb.channel !== 'function') return;
+  liveSubscribedOnce = false;
+  const filter = 'user_id=eq.' + store.user.id;
+  let ch = sb.channel('sync-' + store.user.id);
+  for (const t of [...TABLES, 'settings']) {
+    ch = ch.on('postgres_changes', { event: 'INSERT', schema: 'public', table: t, filter }, (p) => onRemote(t, p))
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: t, filter }, (p) => onRemote(t, p))
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: t }, (p) => onRemote(t, p));
+  }
+  live = ch.subscribe((status) => {
+    if (status !== 'SUBSCRIBED') return;
+    // nach Wiederverbindung: verpasste Änderungen nachholen
+    if (liveSubscribedOnce && store.loaded) load({ quiet: true });
+    liveSubscribedOnce = true;
+  });
+}
+function stopLive() {
+  if (live) { try { sb.removeChannel(live); } catch { /* egal */ } live = null; }
+}
+export function resumeLive() {
+  if (!store.user) return;
+  const st = live?.state;
+  if (!live || st === 'closed' || st === 'errored') startLive();
 }
 
 // ---------------- Konto ----------------
@@ -323,9 +403,10 @@ export function setUser(user) {
   store.activity = new Set();
   store.loaded = false;
   queue = [];
+  stopLive();
   if (user) { loadQueue(); loadCache(); }
   emit();
-  if (user) kick();
+  if (user) { kick(); startLive(); }
 }
 
 export function clearLocal() {

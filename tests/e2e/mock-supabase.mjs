@@ -44,7 +44,36 @@ export function createMock() {
   function del(table, row) {
     const k = PK[table].map((c) => row[c]).join('|');
     db[table] = db[table].filter((r) => PK[table].map((c) => r[c]).join('|') !== k);
+    notify('DELETE', table, null, Object.fromEntries(PK[table].map((c) => [c, row[c]])));
     cascade(table, row);
+  }
+
+  // ---------- Realtime (Phoenix-Protokoll vsn 2, nur postgres_changes) ----------
+  const sockets = new Set();
+  function notify(type, table, record, old) {
+    for (const s of sockets) {
+      for (const [topic, binds] of s.channels) {
+        const ids = binds.filter((b) => b.table === table && b.event === type && (!b.filter || (record && b.filter === 'user_id=eq.' + record.user_id))).map((b) => b.id);
+        if (!ids.length) continue;
+        s.ws.send(JSON.stringify([null, null, topic, 'postgres_changes', { ids, data: { type, schema: 'public', table, commit_timestamp: new Date().toISOString(), record: record || {}, old_record: old || {}, columns: [], errors: null } }]));
+      }
+    }
+  }
+  function ws(socket) {
+    const s = { ws: socket, channels: new Map() };
+    sockets.add(s);
+    socket.onClose(() => sockets.delete(s));
+    socket.onMessage((msg) => {
+      const [joinRef, ref, topic, event, payload] = JSON.parse(String(msg));
+      if (state.offline) return;
+      const reply = (response) => socket.send(JSON.stringify([joinRef, ref, topic, 'phx_reply', { status: 'ok', response }]));
+      if (event === 'phx_join') {
+        const binds = (payload.config?.postgres_changes || []).map((b, i) => ({ ...b, id: 1000 + i }));
+        s.channels.set(topic, binds);
+        reply({ postgres_changes: binds });
+      } else if (event === 'phx_leave') { s.channels.delete(topic); reply({}); }
+      else reply({});
+    });
   }
 
   async function handle(route) {
@@ -143,7 +172,8 @@ export function createMock() {
             if (prefer.includes('ignore-duplicates')) continue;
             if (!prefer.includes('merge-duplicates')) return json(route, 409, { code: '23505', message: 'duplicate key' });
             db[table][i] = { ...db[table][i], ...row, created_at: db[table][i].created_at };
-          } else db[table].push(row);
+            notify('UPDATE', table, db[table][i]);
+          } else { db[table].push(row); notify('INSERT', table, row); }
         }
         return route.fulfill({ status: 201, headers: { 'access-control-allow-origin': '*' } });
       }
@@ -155,5 +185,5 @@ export function createMock() {
     return json(route, 404, { message: 'not mocked: ' + path });
   }
 
-  return { db, users, state, handle };
+  return { db, users, state, handle, ws, sockets };
 }
