@@ -24,7 +24,7 @@ async function newApp({ width = 390, height = 844, theme = 'dark', time = '2026-
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
-  page.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource|ERR_INTERNET_DISCONNECTED|net::/.test(m.text())) errors.push('console: ' + m.text()); });
+  page.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource|ERR_INTERNET_DISCONNECTED|net::|incognito mode/.test(m.text())) errors.push('console: ' + m.text()); });
   await page.clock.setFixedTime(new Date(time));
   if (fontScale !== 1) await page.addInitScript((s) => { document.addEventListener('DOMContentLoaded', () => { document.documentElement.style.fontSize = s * 100 + '%'; }); }, fontScale);
   await page.goto(BASE);
@@ -451,6 +451,75 @@ await test('Fehlerfall: Server-Fehler wird wiederholt, kaputte Sicherung crasht 
   await page.locator('[data-yes]').click();
   await page.waitForTimeout(500);
   assert.equal(mock.db.subjects.length, 6, 'Fach ohne gültiges Semester nicht übernommen');
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await test('Mitteilungszentrale: Glocke, gelesen, Zahl am App-Symbol, Wischen zum Löschen', async () => {
+  const { page, errors, ctx, mock } = await ready();
+  await ctx.grantPermissions(['notifications']);
+  await page.addInitScript(() => {
+    window.__badge = null;
+    navigator.setAppBadge = (n) => { window.__badge = n; return Promise.resolve(); };
+    navigator.clearAppBadge = () => { window.__badge = 0; return Promise.resolve(); };
+  });
+  await page.reload();
+  await page.waitForSelector('.occ');
+  const uid = mock.users.get('joel@example.org').id;
+  // Server verschickt drei Erinnerungen → kommen live in der App an
+  mock.addNotification(uid, { key: 'o|a|2026-10-14|180', title: 'Werkstoffe · Vorlesung', body: 'Pflichttermin in 3 Std. um 13:30 · B120', url: './#day/2026-10-14', created_at: '2026-10-14T07:30:00Z' });
+  mock.addNotification(uid, { key: 'e|b|start', title: 'Prüfungsanmeldung: Mathe 1', body: 'Frist endet morgen', url: './#exams', created_at: '2026-10-13T16:00:00Z' });
+  mock.addNotification(uid, { key: 'test|1', title: 'Studyloop', body: 'Test-Mitteilung – so kommen deine Erinnerungen an.', url: './', created_at: '2026-10-14T08:10:00Z' });
+  await page.waitForFunction(() => document.querySelector('.bell .nb')?.textContent === '3', null, { timeout: 4000 });
+  await page.waitForFunction(() => window.__badge === 3);
+  await shot(page, '20-glocke');
+  await page.locator('[data-act="inbox"]').first().click();
+  await page.waitForSelector('.page.in .nrow');
+  await page.waitForTimeout(500);
+  await shot(page, '21-mitteilungen');
+  assert.deepEqual(await page.locator('.page .inbox .gh').allInnerTexts().then((a) => a.map((x) => x.trim().toLowerCase())), ['heute', 'gestern']);
+  assert.equal(await page.locator('.page .nrow.new').count(), 3, 'neue sind markiert');
+  await overflowCheck(page, 'Mitteilungen');
+  // Öffnen = gelesen → überall gespeichert, Zahl am App-Symbol weg
+  await page.waitForTimeout(600);
+  assert.ok(mock.db.notifications.every((n) => n.read_at), 'alle gelesen gespeichert');
+  await page.waitForFunction(() => window.__badge === 0);
+  // nach links wischen → löschen
+  const row = page.locator('.page .nrow').first();
+  const bb = await row.boundingBox();
+  await row.evaluate((el, bb) => {
+    const ev = (type, x) => el.dispatchEvent(new PointerEvent(type, { pointerType: 'touch', pointerId: 7, bubbles: true, clientX: x, clientY: bb.y + bb.height / 2 }));
+    ev('pointerdown', bb.x + bb.width - 20);
+    for (let i = 1; i <= 8; i++) ev('pointermove', bb.x + bb.width - 20 - i * 14);
+    ev('pointerup', bb.x + bb.width - 20 - 8 * 14);
+  }, bb);
+  await page.waitForTimeout(300);
+  await shot(page, '22-wischen');
+  await page.locator('.page .nrow-wrap.open .nrow-del').click();
+  await page.waitForTimeout(500);
+  assert.equal(mock.db.notifications.length, 2);
+  // Antippen → springt zur Stelle (Prüfungen)
+  await page.locator('.page .nrow', { hasText: 'Prüfungsanmeldung' }).click();
+  await page.waitForTimeout(600);
+  assert.equal(await title(page), 'Prüfungen');
+  assert.equal(await page.locator('.bell .nb').count(), 0, 'keine Zahl mehr an der Glocke');
+  // Alle löschen
+  await page.locator('[data-act="inbox"]').first().click();
+  await page.waitForSelector('.page.in [data-act="clearNotifs"]');
+  await page.locator('.page.in [data-act="clearNotifs"]').click();
+  await page.locator('.sheet-wrap.open [data-yes]').click();
+  await page.waitForTimeout(600);
+  assert.equal(mock.db.notifications.length, 0);
+  await page.waitForSelector('.page.in .empty');
+  await shot(page, '23-leer');
+  // Einstellung: Zahl am App-Symbol = offene Termine
+  await page.locator('.page.in [data-act="back"]').click();
+  await page.waitForTimeout(500);
+  await page.locator('[data-act="settings"]').first().click();
+  await page.waitForSelector('.page.in [data-seg="badge"]');
+  await page.locator('.page.in [data-seg="badge"] [data-v="open"]').click();
+  await page.waitForTimeout(400);
+  assert.equal(mock.db.settings[0].data.badge, 'open');
   assert.deepEqual(errors, []);
   await ctx.close();
 });

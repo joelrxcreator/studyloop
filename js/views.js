@@ -4,10 +4,11 @@ import { store, idx } from './store.js';
 import { icon } from './icons.js';
 import { esc, fmtDate, fmtLong, fmtRange, fmtHours, relDays, fmtStars, miniStars, WD, WD_LONG, navBar, largeTitle, backBtn, tip } from './ui.js';
 import { ui, today, nowMin, currentSemester, subjectsOf } from './ctx.js';
+import { bellBtn } from './inbox.js';
 
 const KIND = (k) => S.KINDS[k]?.label || 'Termin';
 const F = () => store.settings.trackFrom;
-const settingsBtn = `<button class="nav-btn" data-act="settings" aria-label="Einstellungen">${icon('person')}</button>`;
+const settingsBtn = () => `${bellBtn()}<button class="nav-btn" data-act="settings" aria-label="Einstellungen">${icon('person')}</button>`;
 
 /** Prüfungen/Fristen, die an diesem Tag als Termin zählen (Zeiträume nur am letzten Tag). */
 const markedExams = (d) => S.examsOn(store.data, d).filter((e) => (e.kind === 'exam' || e.kind === 'oral' || e.kind === 'submission' || e.kind === 'other') ? e.on_date === d : e.kind !== 'period' && (e.until_date || e.on_date) === d);
@@ -172,7 +173,7 @@ export function renderDay(el) {
   }
 
   el.innerHTML = `
-    ${navBar({ title, right: settingsBtn })}
+    ${navBar({ title, right: settingsBtn() })}
     ${largeTitle(title, sub, diff !== 0 ? `<button class="pill-btn" data-act="day" data-d="${t}">Heute</button>` : '')}
     <div class="strip" data-swipe="week">${strip}</div>
     <div class="wrap" data-swipe="day">
@@ -260,7 +261,7 @@ export function renderWeek(el) {
   const allOpen = isCur || mon < t ? openItems().open.length : 0;
 
   el.innerHTML = `
-    ${navBar({ title, right: settingsBtn })}
+    ${navBar({ title, right: settingsBtn() })}
     ${largeTitle(title, `${esc(weekText(mon))}${total ? ' · ' + fmtHours(total) : ''}`, `
       <div class="tt-tools">${!isCur ? `<button class="pill-btn" data-act="wk" data-d="0">Heute</button>` : ''}
       <button class="circle-btn" data-act="wk" data-d="-7" aria-label="Vorherige Woche">${icon('left')}</button>
@@ -310,7 +311,7 @@ export function renderSubjects(el) {
   };
 
   el.innerHTML = `
-    ${navBar({ title: 'Fächer', right: `${subs.length ? '<button class="nav-btn" data-act="editTT">Bearbeiten</button>' : ''}${settingsBtn}` })}
+    ${navBar({ title: 'Fächer', right: `${subs.length ? '<button class="nav-btn" data-act="editTT">Bearbeiten</button>' : ''}${settingsBtn()}` })}
     ${largeTitle('Fächer', semSel)}
     <div class="wrap">
     ${subs.length ? `<div class="md"><div class="master">
@@ -417,7 +418,7 @@ export function renderExams(el) {
     </button></div>`;
   }
   el.innerHTML = `
-    ${navBar({ title: 'Prüfungen', right: `<button class="nav-btn" data-act="newExam" aria-label="Prüfung hinzufügen">${icon('plus')}</button>${settingsBtn}` })}
+    ${navBar({ title: 'Prüfungen', right: `<button class="nav-btn" data-act="newExam" aria-label="Prüfung hinzufügen">${icon('plus')}</button>${settingsBtn()}` })}
     ${largeTitle('Prüfungen')}
     <div class="wrap">
       ${hero}

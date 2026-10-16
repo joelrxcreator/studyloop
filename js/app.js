@@ -1,8 +1,8 @@
 // Studyloop – Start, Navigation, Gesten.
 import * as S from './schedule.js';
-import { store, sb, idx, onChange, onStatus, onError, setUser, load, pendingCount, patchOcc, resumeLive } from './store.js';
+import { store, sb, idx, onChange, onStatus, onError, setUser, load, pendingCount, patchOcc, resumeLive, unreadCount, markReadByKey, removeNotifications, notifications, markRead } from './store.js';
 import { icon } from './icons.js';
-import { toast, openSheets, closeAllSheets, tipDismiss, haptic } from './ui.js';
+import { toast, openSheets, closeAllSheets, tipDismiss, haptic, confirmDialog } from './ui.js';
 import { ui, nav, today } from './ctx.js';
 import { renderDay, renderWeek, renderSubjects, renderSubjectPage, renderExams, renderBacklog } from './views.js';
 import { openOcc, openSeries, openSubject, openExam, renderTTEditor, renderSemesterEditor, addHoliday, delHoliday, delSemester, newSemester } from './editors.js';
@@ -11,6 +11,7 @@ import { renderAuth, renderOnboarding, askNewPassword } from './auth.js';
 import { syncPush } from './push.js';
 import { bindGlassTabbar, placeLens, setBadge } from './apple.js';
 import { openItems } from './views.js';
+import { inboxPage, deleteNotif, clearSystemNotifications } from './inbox.js';
 
 const app = document.getElementById('app');
 let mode = null; // auth | loading | onboarding | main
@@ -71,8 +72,24 @@ function renderMain() {
   ({ day: renderDay, week: renderWeek, subjects: renderSubjects, exams: renderExams }[ui.tab])(main);
   tabbar.querySelectorAll('[data-tab]').forEach((b) => { if (b.dataset.tab === ui.tab) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
   placeLens(tabbar, TABS.findIndex(([k]) => k === ui.tab));
-  try { setBadge(openItems().open.length); } catch { /* egal */ }
+  updateBadge();
   updateScrolled(main);
+}
+
+// Zahl am App-Symbol: standardmäßig ungelesene Mitteilungen (wie bei Mail & Co.)
+function updateBadge() {
+  try {
+    const mode = store.settings.badge || 'unread';
+    setBadge(mode === 'off' ? 0 : mode === 'open' ? openItems().open.length : unreadCount());
+  } catch { /* egal */ }
+}
+
+function openInbox() {
+  // schon offen? nicht doppelt stapeln
+  const top = pages[pages.length - 1];
+  if (top?.inbox) { top.render(); return; }
+  pushPage(inboxPage());
+  pages[pages.length - 1].inbox = true;
 }
 
 function go(tab, { fromTab = false } = {}) {
@@ -149,6 +166,27 @@ async function onAction(e) {
     case 'togglePast': ui.showPast = !ui.showPast; renderMain(); break;
     case 'tip': tipDismiss(b.dataset.id); b.closest('.tip')?.remove(); break;
     case 'settings': nav.openSettings(); break;
+    case 'inbox': openInbox(); break;
+    case 'openNotif': {
+      if (b.closest('.nrow-wrap')?.dataset.swiped) break;
+      const wrap = b.closest('.nrow-wrap');
+      if (wrap?.classList.contains('open')) { wrap.classList.remove('open'); b.style.transform = ''; break; }
+      const n = notifications().find((x) => x.id === b.dataset.id);
+      if (!n) break;
+      markRead([n]);
+      haptic();
+      if (n.url && n.url.includes('#')) route(n.url.slice(n.url.indexOf('#')));
+      break;
+    }
+    case 'delNotif': {
+      const w = b.closest('.nrow-wrap');
+      haptic();
+      if (w) { w.classList.add('removing'); setTimeout(() => deleteNotif(b.dataset.id), 220); } else deleteNotif(b.dataset.id);
+      break;
+    }
+    case 'clearNotifs':
+      if (await confirmDialog({ title: 'Alle Mitteilungen löschen?', confirm: 'Alle löschen', danger: true })) { removeNotifications(notifications()); clearSystemNotifications(); }
+      break;
     case 'back': popPage(); break;
     case 'backlog': pushPage((el) => renderBacklog(el)); break;
     case 'subject':
@@ -275,17 +313,28 @@ setInterval(() => {
   else if (!openSheets()) scheduleRender();
 }, 60000);
 
-onChange(scheduleRender);
+onChange(() => {
+  if (pendingReadKey && store.loaded && markReadByKey(pendingReadKey)) pendingReadKey = null;
+  updateBadge();
+  scheduleRender();
+});
 
 // Mitteilung angetippt → richtige Stelle öffnen
+let pendingReadKey = null;
 function route(hash) {
+  const nk = /[#&]n=([^&]+)/.exec(hash || '');
+  if (nk) { pendingReadKey = decodeURIComponent(nk[1]); if (store.loaded && markReadByKey(pendingReadKey)) pendingReadKey = null; }
   const m = /^#?day\/(\d{4}-\d{2}-\d{2})/.exec(hash || '');
   if (m && S.isValidDate(m[1])) { ui.day = m[1]; ui.tab = 'day'; }
   else if (/exams/.test(hash || '')) ui.tab = 'exams';
   if (mode === 'main') { closeAllSheets(); go(ui.tab); }
 }
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.addEventListener('message', (e) => { if (e.data?.type === 'open') route(new URL(e.data.url, location.href).hash); });
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    if (e.data?.type !== 'open') return;
+    if (e.data.key) markReadByKey(e.data.key);
+    route(new URL(e.data.url, location.href).hash);
+  });
 }
 
 // ---------------- Start ----------------

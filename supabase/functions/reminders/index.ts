@@ -57,6 +57,18 @@ async function deliver(subs: Sub[], payload: Record<string, unknown>, vapid: { p
   return { delivered, errors };
 }
 
+// Mitteilungszentrale: Eintrag anlegen (einmal pro Schlüssel) und Zahl fürs App-Symbol bestimmen
+async function addToInbox(userId: string, n: { key: string; title: string; body: string; url?: string }) {
+  await admin.from('notifications').upsert({ user_id: userId, key: n.key, title: n.title, body: n.body, url: n.url || null }, { onConflict: 'user_id,key', ignoreDuplicates: true });
+}
+async function badgeFor(userId: string, settings: Record<string, unknown>) {
+  const mode = (settings?.badge as string) || 'unread';
+  if (mode === 'off') return 0;
+  if (mode !== 'unread') return undefined; // „Offene Termine“ zählt die App selbst
+  const { count } = await admin.from('notifications').select('id', { count: 'exact', head: true }).eq('user_id', userId).is('read_at', null);
+  return count ?? undefined;
+}
+
 async function loadUserData(userId: string, fromDay: string, toDay: string) {
   const q = (t: string) => admin.from(t).select('*').eq('user_id', userId);
   const [sem, sub, ser, occ, ex, set] = await Promise.all([
@@ -93,7 +105,9 @@ async function runCron() {
       const doneSet = new Set((done || []).map((d: { key: string }) => d.key));
       for (const r of due) {
         if (doneSet.has(r.key)) continue;
-        const res = await deliver(list, { title: r.title, body: r.body, url: r.url, tag: r.key }, vapid);
+        await addToInbox(userId, r);
+        const badge = await badgeFor(userId, settings);
+        const res = await deliver(list, { title: r.title, body: r.body, url: r.url, tag: r.key, badge }, vapid);
         if (res.delivered > 0) {
           // nur als verschickt markieren, wenn es wirklich angekommen ist
           await admin.from('push_sent').insert({ user_id: userId, key: r.key });
@@ -110,6 +124,7 @@ async function runCron() {
   if (new Date(now).getUTCMinutes() < 5) {
     await admin.from('push_sent').delete().lt('sent_at', new Date(now - 60 * 864e5).toISOString());
     await admin.from('push_log').delete().lt('at', new Date(now - 30 * 864e5).toISOString());
+    await admin.from('notifications').delete().lt('created_at', new Date(now - 60 * 864e5).toISOString());
   }
   return { users: byUser.size, sent };
 }
@@ -135,7 +150,11 @@ Deno.serve(async (req) => {
       const { data: subs } = await admin.from('push_subscriptions').select('*').eq('user_id', userId);
       if (!subs?.length) return json({ delivered: 0, devices: 0, error: 'Auf diesem Konto ist noch kein Gerät für Mitteilungen angemeldet.' });
       const vapid = { publicKey: sec.vapid_public, privateKey: sec.vapid_private, subject: sec.vapid_subject };
-      const res = await deliver(subs as Sub[], { title: 'Studyloop', body: 'Test-Mitteilung – so kommen deine Erinnerungen an.', url: './', tag: 'test' }, vapid);
+      const n = { key: 'test|' + Date.now(), title: 'Studyloop', body: 'Test-Mitteilung – so kommen deine Erinnerungen an.', url: './' };
+      await addToInbox(userId, n);
+      const { data: set } = await admin.from('settings').select('data').eq('user_id', userId).maybeSingle();
+      const badge = await badgeFor(userId, set?.data || {});
+      const res = await deliver(subs as Sub[], { title: n.title, body: n.body, url: n.url, tag: n.key, badge }, vapid);
       await log(userId, res.delivered ? 'info' : 'error', res.delivered ? `Test an ${res.delivered} Gerät(e) zugestellt.` : `Test fehlgeschlagen: ${res.errors[0] || 'kein Gerät erreichbar'}`);
       return json({ delivered: res.delivered, devices: subs.length, error: res.errors[0] || null });
     }

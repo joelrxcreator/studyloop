@@ -3,7 +3,7 @@
 
 const PK = {
   semesters: ['id'], subjects: ['id'], series: ['id'], occurrences: ['series_id', 'on_date'], exams: ['id'],
-  settings: ['user_id'], activity: ['user_id', 'day'], push_subscriptions: ['endpoint'], push_log: ['id'],
+  settings: ['user_id'], activity: ['user_id', 'day'], push_subscriptions: ['endpoint'], push_log: ['id'], notifications: ['id'],
 };
 
 export function createMock() {
@@ -120,6 +120,7 @@ export function createMock() {
       if (body?.action === 'test') {
         const subs = db.push_subscriptions.filter((s) => s.user_id === uid);
         state.pushLog.push({ uid, action: 'test' });
+        if (subs.length) addNotification(uid, { key: 'test|' + Date.now(), title: 'Studyloop', body: 'Test-Mitteilung – so kommen deine Erinnerungen an.', url: './' });
         return json(route, 200, { delivered: subs.length, devices: subs.length, error: subs.length ? null : 'kein Gerät' });
       }
       if (body?.action === 'delete_account') {
@@ -185,5 +186,14 @@ export function createMock() {
     return json(route, 404, { message: 'not mocked: ' + path });
   }
 
-  return { db, users, state, handle, ws, sockets };
+  // wie der Server: Erinnerung in die Mitteilungszentrale legen
+  function addNotification(uid, n) {
+    const row = { id: crypto.randomUUID(), user_id: uid, created_at: new Date(Date.now() + (n.offsetMs || 0)).toISOString(), read_at: null, body: '', url: null, ...n };
+    delete row.offsetMs;
+    db.notifications.push(row);
+    notify('INSERT', 'notifications', row);
+    return row;
+  }
+
+  return { db, users, state, handle, ws, sockets, addNotification };
 }

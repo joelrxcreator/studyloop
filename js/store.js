@@ -11,7 +11,7 @@ export const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
 export const TABLES = ['semesters', 'subjects', 'series', 'occurrences', 'exams'];
 const KEYS = {
   semesters: ['id'], subjects: ['id'], series: ['id'], occurrences: ['series_id', 'on_date'], exams: ['id'],
-  settings: ['user_id'], activity: ['user_id', 'day'],
+  settings: ['user_id'], activity: ['user_id', 'day'], notifications: ['id'],
 };
 export const COLS = {
   semesters: ['id', 'user_id', 'name', 'starts_on', 'ends_on', 'weeks', 'holidays', 'parity_labels'],
@@ -21,6 +21,7 @@ export const COLS = {
   exams: ['id', 'user_id', 'semester_id', 'subject_id', 'kind', 'title', 'on_date', 'until_date', 'starts_at', 'ends_at', 'room', 'note', 'remind'],
   settings: ['user_id', 'data', 'timezone'],
   activity: ['user_id', 'day'],
+  notifications: ['id', 'user_id', 'key', 'title', 'body', 'url', 'created_at', 'read_at'],
 };
 const keyOf = (table, row) => KEYS[table].map((k) => row[k]).join('|');
 function pick(table, row) {
@@ -34,7 +35,7 @@ function pick(table, row) {
   return o;
 }
 
-const empty = () => ({ semesters: [], subjects: [], series: [], occurrences: [], exams: [] });
+const empty = () => ({ semesters: [], subjects: [], series: [], occurrences: [], exams: [], notifications: [] });
 
 export const store = {
   user: null,
@@ -253,6 +254,23 @@ export function patchOcc(o, patch) {
   markActive();
 }
 
+// ---------------- Mitteilungszentrale ----------------
+export const notifications = () => [...(store.data.notifications || [])].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+export const unreadCount = () => (store.data.notifications || []).filter((n) => !n.read_at).length;
+export function markRead(list) {
+  const now = new Date().toISOString();
+  const rows = list.filter((n) => n && !n.read_at).map((n) => ['notifications', { ...n, read_at: now }]);
+  if (rows.length) putMany(rows);
+}
+export function markReadByKey(key) {
+  const n = (store.data.notifications || []).find((x) => x.key === key);
+  if (n) markRead([n]);
+  return !!n;
+}
+export function removeNotifications(list) {
+  for (const n of list) remove('notifications', n);
+}
+
 export function markActive() {
   const d = S.localDate();
   if (store.activity.has(d)) return;
@@ -294,15 +312,18 @@ export async function load({ quiet = false } = {}) {
   try {
     const id = (q) => q.order('created_at', { ascending: true });
     const since = S.addDays(S.localDate(), -400);
-    const [semesters, subjects, series, occurrences, exams, activity, settingsRes] = await Promise.all([
+    const [semesters, subjects, series, occurrences, exams, activity, settingsRes, notifRes] = await Promise.all([
       fetchAll('semesters', id), fetchAll('subjects', id), fetchAll('series', id),
       fetchAll('occurrences', (q) => q.order('on_date')), fetchAll('exams', id),
       fetchAll('activity', (q) => q.gte('day', since)),
       sb.from('settings').select('*').maybeSingle(),
+      sb.from('notifications').select('*').order('created_at', { ascending: false }).limit(150),
     ]);
     if (settingsRes.error) throw Object.assign(new Error(settingsRes.error.message), { status: settingsRes.status });
     if (store.user?.id !== uid) return false;
-    const fresh = { semesters, subjects, series, occurrences, exams };
+    // Mitteilungen sind optional: fehlt die Tabelle o. Ä., bleibt der bisherige Stand
+    const notifications = notifRes.error ? store.data.notifications || [] : notifRes.data;
+    const fresh = { semesters, subjects, series, occurrences, exams, notifications };
     // eigene Änderungen behalten: noch nicht gesendete und solche, die während des Ladens entstanden sind
     for (const op of [...queue, ...journal]) applyLocal(fresh, op);
     store.data = fresh;
@@ -373,7 +394,7 @@ function startLive() {
   liveSubscribedOnce = false;
   const filter = 'user_id=eq.' + store.user.id;
   let ch = sb.channel('sync-' + store.user.id);
-  for (const t of [...TABLES, 'settings']) {
+  for (const t of [...TABLES, 'settings', 'notifications']) {
     ch = ch.on('postgres_changes', { event: 'INSERT', schema: 'public', table: t, filter }, (p) => onRemote(t, p))
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: t, filter }, (p) => onRemote(t, p))
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: t }, (p) => onRemote(t, p));

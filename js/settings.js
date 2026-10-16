@@ -64,9 +64,13 @@ export function renderSettings(el, rerender) {
       <label class="cell"><span class="main"><span class="t">Prüfungen 1 Woche vorher</span></span>${sw('examWeek', st.examWeek)}</label>
       <label class="cell"><span class="main"><span class="t">Nachtruhe</span></span>${sw('quiet', st.quiet.on)}</label>
       <div class="cell" ${st.quiet.on ? '' : 'hidden'}><div class="grid2" style="flex:1"><label class="field"><span>Von</span><input type="time" data-q="from" value="${st.quiet.from}" style="background:var(--fill)"></label><label class="field"><span>Bis</span><input type="time" data-q="to" value="${st.quiet.to}" style="background:var(--fill)"></label></div></div>
-      <button class="cell" data-act="pushLog"><span class="main"><span class="t">Verlauf</span></span>${icon('right', 'chev')}</button>
+      <button class="cell" data-act="pushLog"><span class="main"><span class="t">Zustellprotokoll</span></span>${icon('right', 'chev')}</button>
     </div>
     <div class="gf">In der Nachtruhe kommt nichts – die Erinnerung kommt dann vorher oder am Morgen.</div>
+
+    <div class="gh">Zahl am App-Symbol</div>
+    <div class="group"><div class="cell">${seg('badge', [['unread', 'Ungelesen'], ['open', 'Offene Termine'], ['off', 'Aus']], st.badge).replace('class="seg"', 'class="seg" style="flex:1"')}</div></div>
+    <div class="gf">${{ unread: 'Zeigt, wie viele Mitteilungen du noch nicht angesehen hast. Öffnest du die Mitteilungen (Glocke oben), verschwindet die Zahl.', open: 'Zeigt, wie viele Termine du noch nacharbeiten musst.', off: 'Keine Zahl am App-Symbol.' }[st.badge]}</div>
 
     <div class="gh">Studium</div>
     <div class="group">
@@ -98,7 +102,7 @@ export function renderSettings(el, rerender) {
     <p class="foot-note">Studyloop ${APP_VERSION}</p>
     </div>`;
 
-  bindSegs(el, (name, v) => { if (name === 'theme') setTheme(v); });
+  bindSegs(el, (name, v) => { if (name === 'theme') setTheme(v); if (name === 'badge') { putSettings({ badge: v }); rerender(); } });
   el.querySelector('[data-trackfrom]').addEventListener('change', (e) => putSettings({ trackFrom: e.target.value || null }));
   el.querySelector('[data-sw="examWeek"]').addEventListener('change', (e) => putSettings({ examWeek: e.target.checked }));
   el.querySelector('[data-sw="quiet"]').addEventListener('change', (e) => putSettings({ quiet: { ...store.settings.quiet, on: e.target.checked } }));
@@ -139,7 +143,7 @@ export async function settingsAction(act, btn, rerender) {
     putSettings({ offsets: cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v] });
   } else if (act === 'pushLog') {
     sheet({
-      title: 'Verlauf',
+      title: 'Zustellprotokoll',
       render: async (b) => {
         b.innerHTML = '<div class="skel" style="height:120px"></div>';
         try {

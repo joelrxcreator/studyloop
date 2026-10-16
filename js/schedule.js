@@ -356,6 +356,7 @@ export function normalizeSettings(raw) {
   s.trackFrom = isValidDate(s.trackFrom) ? s.trackFrom : null;
   const q = s.quiet && typeof s.quiet === 'object' ? s.quiet : {};
   s.quiet = { on: q.on !== false, from: /^\d\d:\d\d$/.test(q.from) ? q.from : '22:00', to: /^\d\d:\d\d$/.test(q.to) ? q.to : '07:00' };
+  s.badge = ['unread', 'open', 'off'].includes(s.badge) ? s.badge : 'unread'; // Zahl am App-Symbol
   return s;
 }
 
