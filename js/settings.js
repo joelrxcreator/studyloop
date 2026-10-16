@@ -6,6 +6,9 @@ import { esc, sheet, toast, confirmDialog, seg, bindSegs, sw, download, navBar, 
 import { currentSemester } from './ctx.js';
 import { pushState, enablePush, disablePush, testPush, pushLog, deviceSubscribed } from './push.js';
 import { APP_VERSION } from './config.js';
+import { buildIcs, shareIcs } from './apple.js';
+import { idx } from './store.js';
+import { today } from './ctx.js';
 
 const OFFSETS = [10080, 1440, 180, 60, 30];
 
@@ -79,6 +82,7 @@ export function renderSettings(el, rerender) {
 
     <div class="gh">Daten</div>
     <div class="group">
+      <button class="cell ic" data-act="exportIcs"><span class="sq red">${icon('cal')}</span><span class="main"><span class="t">In Apple Kalender übernehmen</span><span class="s">Stundenplan & Prüfungen bis Semesterende</span></span></button>
       <button class="cell ic" data-act="export"><span class="sq gray">${icon('download')}</span><span class="main"><span class="t">Sicherung exportieren</span></span></button>
       <label class="cell ic" style="cursor:pointer"><span class="sq gray">${icon('upload')}</span><span class="main"><span class="t">Sicherung einspielen</span></span><input type="file" accept="application/json,.json" data-import hidden></label>
     </div>
@@ -145,6 +149,22 @@ export async function settingsAction(act, btn, rerender) {
         } catch (e) { b.innerHTML = `<div class="err">Konnte nicht geladen werden: ${esc(e.message)}</div>`; }
       },
     });
+  } else if (act === 'exportIcs') {
+    const sem = currentSemester();
+    if (!sem) { toast('Noch kein Semester angelegt.'); return true; }
+    const I = idx(), t = today();
+    const ev = [];
+    for (let d = t > sem.starts_on ? t : sem.starts_on; d <= sem.ends_on; d = S.addDays(d, 1)) {
+      for (const o of S.occurrencesOn(I, d)) {
+        if (o.cancelled) continue;
+        ev.push({ uid: o.key.replace('|', '-'), title: `${o.subject.name} · ${S.KINDS[o.series.kind]?.label || ''}`, date: d, start: o.starts, end: o.ends, location: o.room, notes: o.mandatory ? 'Pflichttermin' : '', alarmMin: o.mandatory ? 60 : null });
+      }
+    }
+    for (const e of store.data.exams.filter((x) => (x.until_date || x.on_date) >= t)) {
+      ev.push({ uid: e.id, title: `${S.EXAM_KINDS[e.kind]?.label || 'Termin'}: ${e.title}`, date: e.on_date, endDate: e.until_date || null, start: e.until_date ? null : S.hhmm(e.starts_at) || null, end: S.hhmm(e.ends_at) || (e.starts_at ? S.minToHHMM(S.toMin(e.starts_at) + 90) : null), location: e.room, notes: e.note, alarmMin: e.starts_at && e.kind !== 'period' ? 1440 : null });
+    }
+    const r = await shareIcs(`Studyloop ${sem.name.replace(/[^\w ]/g, '')}.ics`, buildIcs(ev, `Studyloop · ${sem.name}`));
+    if (r === 'downloaded') toast(`${ev.length} Termine als Kalender-Datei gespeichert`);
   } else if (act === 'export') {
     download(`studyloop-sicherung-${S.localDate()}.json`, JSON.stringify(exportData(), null, 1));
     toast('Sicherung gespeichert');

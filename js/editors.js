@@ -6,6 +6,7 @@ import { esc, sheet, toast, confirmDialog, seg, bindSegs, segValue, sw, fmtDate,
 import { ui, nav, today, nowMin, currentSemester, subjectsOf } from './ctx.js';
 import { uuid, SEMESTER_PRESETS, buildFromPreset } from './presets.js';
 import { pushState } from './push.js';
+import { buildIcs, shareIcs } from './apple.js';
 
 const KIND_OPTS = Object.entries(S.KINDS).map(([k, v]) => [k, v.label]);
 const short = (l) => l.replace(' Woche', '').replace('Woche ', '');
@@ -356,7 +357,8 @@ export function openExam(existing, preset = {}) {
         <div class="list"><label class="row"><span class="ibox red">${icon('bell')}</span><span class="main"><span class="t" style="display:block">Erinnern</span><span class="s" style="display:block" data-remindhint></span></span>${sw('remind', v.remind)}</label></div>
         <div data-err></div>
         <button class="btn primary" data-save>${existing ? 'Speichern' : 'Hinzufügen'}</button>
-        ${existing ? `<div class="list" style="margin-top:12px"><button class="row danger" data-del><span class="main"><span class="t">Löschen</span></span></button></div>` : ''}
+        ${existing ? `<div class="list" style="margin-top:12px"><button class="row" data-ics><span class="main"><span class="t" style="color:var(--accent)">Zum Kalender hinzufügen</span></span></button></div>
+        <div class="list" style="margin-top:12px"><button class="row danger" data-del><span class="main"><span class="t">Löschen</span></span></button></div>` : ''}
       </div>`;
       const f = (n) => b.querySelector(`[data-f="${n}"]`);
       const upd = () => {
@@ -392,6 +394,15 @@ export function openExam(existing, preset = {}) {
         put('exams', row);
         toast(existing ? 'Gespeichert' : 'Hinzugefügt');
         api.close();
+      });
+      b.querySelector('[data-ics]')?.addEventListener('click', () => {
+        const e = store.data.exams.find((x) => x.id === existing.id) || existing;
+        const sub = subs.find((x) => x.id === e.subject_id);
+        shareIcs(`${e.title.replace(/[^\wäöüÄÖÜß -]/g, '')}.ics`, buildIcs([{
+          uid: e.id, title: `${S.EXAM_KINDS[e.kind]?.label || 'Termin'}: ${e.title}`, date: e.on_date, endDate: e.until_date || null,
+          start: e.until_date ? null : S.hhmm(e.starts_at) || null, end: S.hhmm(e.ends_at) || (e.starts_at ? S.minToHHMM(S.toMin(e.starts_at) + 90) : null),
+          location: e.room, notes: [sub?.name, e.note].filter(Boolean).join('\n'), alarmMin: e.starts_at ? 1440 : null,
+        }], e.title));
       });
       b.querySelector('[data-del]')?.addEventListener('click', async () => {
         if (!(await confirmDialog({ title: `„${existing.title}“ löschen?`, confirm: 'Löschen', danger: true }))) return;

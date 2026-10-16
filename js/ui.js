@@ -55,7 +55,7 @@ export const ring = (p, c) => `<span class="ring ${p >= 100 ? 'done' : ''}" ${c 
 export const COLORS = ['blue', 'orange', 'green', 'purple', 'yellow', 'pink', 'teal', 'slate'];
 export const COLOR_NAMES = { blue: 'Blau', orange: 'Orange', green: 'Grün', purple: 'Lila', yellow: 'Gelb', pink: 'Rosa', teal: 'Türkis', slate: 'Grau' };
 
-export function haptic() { try { navigator.vibrate?.(8); } catch { /* egal */ } }
+export { haptic } from './apple.js';
 
 // ---------------- Toast ----------------
 let toastEl, toastTimer;

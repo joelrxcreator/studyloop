@@ -9,6 +9,8 @@ import { openOcc, openSeries, openSubject, openExam, renderTTEditor, renderSemes
 import { renderSettings, settingsAction, setTheme, getTheme } from './settings.js';
 import { renderAuth, renderOnboarding, askNewPassword } from './auth.js';
 import { syncPush } from './push.js';
+import { bindGlassTabbar, placeLens, setBadge } from './apple.js';
+import { openItems } from './views.js';
 
 const app = document.getElementById('app');
 let mode = null; // auth | loading | onboarding | main
@@ -50,12 +52,12 @@ function render() {
 function buildShell() {
   app.innerHTML = `
     <div class="screen" id="main"></div>
-    <nav class="tabbar" aria-label="Bereiche">${TABS.map(([k, ic, l]) => `<button data-tab="${k}">${icon(ic)}<span>${l}</span></button>`).join('')}</nav>
+    <nav class="tabbar" aria-label="Bereiche"><div class="lens" aria-hidden="true"></div>${TABS.map(([k, ic, l]) => `<button data-tab="${k}" aria-label="${l}">${icon(ic)}<span aria-hidden="true">${l}</span></button>`).join('')}</nav>
     <div class="ptr">${icon('refresh')}</div>`;
   main = app.querySelector('#main');
   tabbar = app.querySelector('.tabbar');
   ptr = app.querySelector('.ptr');
-  tabbar.addEventListener('click', (e) => { const b = e.target.closest('[data-tab]'); if (b) go(b.dataset.tab, { fromTab: true }); });
+  bindGlassTabbar(tabbar, (tab, opts) => go(tab, opts));
   main.addEventListener('click', onAction);
   main.addEventListener('change', onChangeAction);
   main.addEventListener('keydown', onKey);
@@ -68,6 +70,8 @@ function renderMain() {
   main.classList.toggle('wide', ui.tab === 'week');
   ({ day: renderDay, week: renderWeek, subjects: renderSubjects, exams: renderExams }[ui.tab])(main);
   tabbar.querySelectorAll('[data-tab]').forEach((b) => { if (b.dataset.tab === ui.tab) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
+  placeLens(tabbar, TABS.findIndex(([k]) => k === ui.tab));
+  try { setBadge(openItems().open.length); } catch { /* egal */ }
   updateScrolled(main);
 }
 
@@ -79,9 +83,10 @@ function go(tab, { fromTab = false } = {}) {
     if (tab === 'day') ui.day = today();
     if (tab === 'week') ui.weekMon = S.mondayOf(today());
   }
-  if (tab !== ui.tab) main.scrollTop = 0;
-  ui.tab = tab;
-  renderMain();
+  const changed = tab !== ui.tab;
+  const apply = () => { if (changed) main.scrollTop = 0; ui.tab = tab; renderMain(); };
+  if (changed && document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches) document.startViewTransition(apply);
+  else apply();
 }
 
 // Großer Titel rutscht beim Scrollen in die Leiste
@@ -146,7 +151,10 @@ async function onAction(e) {
     case 'settings': nav.openSettings(); break;
     case 'back': popPage(); break;
     case 'backlog': pushPage((el) => renderBacklog(el)); break;
-    case 'subject': pushPage((el) => renderSubjectPage(el, b.dataset.id)); break;
+    case 'subject':
+      if (ui.tab === 'subjects' && !pages.length && matchMedia('(min-width: 900px), (min-width: 760px) and (orientation: landscape)').matches) { ui.subjectSel = b.dataset.id; haptic(); renderMain(); }
+      else pushPage((el) => renderSubjectPage(el, b.dataset.id));
+      break;
     case 'editSubject': openSubject(store.data.subjects.find((s) => s.id === b.dataset.id)); break;
     case 'newSubject': openSubject(null); break;
     case 'editSeries': openSeries(store.data.series.find((s) => s.id === b.dataset.id)); break;
@@ -307,6 +315,26 @@ if ('serviceWorker' in navigator) {
     if (had && !openSheets() && !pendingCount()) location.reload();
   });
 }
+
+// iPad mit Tastatur: Kürzel
+document.addEventListener('keydown', (e) => {
+  if (mode !== 'main' || openSheets() || e.metaKey || e.ctrlKey || e.altKey || e.target.closest('input, textarea, select, [contenteditable]')) return;
+  const k = e.key;
+  if (k >= '1' && k <= '4') { go(TABS[Number(k) - 1][0]); e.preventDefault(); }
+  else if ((k === 'ArrowLeft' || k === 'ArrowRight') && !pages.length) {
+    const dir = k === 'ArrowRight' ? 1 : -1;
+    if (ui.tab === 'day') ui.day = S.addDays(ui.day, dir); else if (ui.tab === 'week') ui.weekMon = S.addDays(ui.weekMon, dir * 7); else return;
+    renderMain(); e.preventDefault();
+  } else if (k === 't' || k === 'T') { ui.day = today(); ui.weekMon = S.mondayOf(today()); renderMain(); }
+  else if (k === 'Escape' && pages.length) popPage();
+});
+
+// Drehen / Fenstergröße (iPad Split View): Layout neu berechnen
+let resizeT = 0, lastW = innerWidth;
+addEventListener('resize', () => {
+  clearTimeout(resizeT);
+  resizeT = setTimeout(() => { if (Math.abs(innerWidth - lastW) > 40) { lastW = innerWidth; scheduleRender(); } }, 150);
+});
 
 // Kein Zoom (Pinch/Doppeltipp), kein Kontextmenü außerhalb von Eingabefeldern
 ['gesturestart', 'gesturechange', 'gestureend'].forEach((ev) => document.addEventListener(ev, (e) => e.preventDefault(), { passive: false }));

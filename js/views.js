@@ -178,10 +178,13 @@ export function renderDay(el) {
     <div class="wrap" data-swipe="day">
       ${tip('today', 'checkCircle', 'So funktioniert’s', 'Tippe auf einen Termin, um Fortschritt, Sicherheit und Notizen einzutragen. Mit dem Kreis rechts hakst du ihn direkt ab.')}
       ${note ? `<div class="note-banner" style="margin:10px 4px 0">${note}</div>` : ''}
+      <div class="split"><div class="primary">
       ${exams.length ? `<div class="gh">Prüfungen & Fristen</div><div class="group">${exams.map((e) => examRow(e, date)).join('')}</div>` : ''}
       ${content}
+      </div><aside class="side">
       ${catchUp}
       ${soon}
+      </aside></div>
     </div>`;
 }
 
@@ -292,6 +295,7 @@ export function renderSubjects(el) {
   const weakCount = stats.reduce((a, x) => a + x.st.weak.length, 0);
   const semSel = sems.length > 1 ? `<select data-act="sem" aria-label="Semester" style="height:30px;line-height:30px;width:auto;background-color:var(--fill);font-size:.882rem;padding:0 30px 0 12px;background-position:right 10px center">${[...sems].sort((a, b) => (a.starts_on > b.starts_on ? -1 : 1)).map((s) => `<option value="${s.id}" ${s.id === sem?.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>` : esc(sem?.name || '');
 
+  const selId = subs.some((x) => x.id === ui.subjectSel) ? ui.subjectSel : stats[0]?.s.id;
   const row = ({ s, st, ex }) => {
     const parts = [];
     if (st.open.length) parts.push(`${st.open.length} offen`);
@@ -299,7 +303,7 @@ export function renderSubjects(el) {
     if (st.avgStars != null) parts.push(`★ ${fmtStars(st.avgStars)}`);
     if (ex) parts.push(`${S.EXAM_KINDS[ex.kind]?.label || 'Prüfung'} ${relDays(S.diffDays(t, ex.on_date))}`);
     if (!parts.length) parts.push(st.due.length ? 'Alles erledigt' : 'Noch nichts fällig');
-    return `<button class="cell ic" data-act="subject" data-id="${s.id}" data-c="${s.color}">
+    return `<button class="cell ic ${s.id === selId ? 'selected' : ''}" data-act="subject" data-id="${s.id}" data-c="${s.color}">
       <span class="sq lg">${esc((s.code || s.name).slice(0, 3))}</span>
       <span class="main"><span class="t">${esc(s.name)}</span><span class="s">${parts.join(' · ')}</span></span>
       <span class="v">${st.progress != null ? Math.round(st.progress) + ' %' : ''}</span>${icon('right', 'chev')}</button>`;
@@ -309,7 +313,7 @@ export function renderSubjects(el) {
     ${navBar({ title: 'Fächer', right: `${subs.length ? '<button class="nav-btn" data-act="editTT">Bearbeiten</button>' : ''}${settingsBtn}` })}
     ${largeTitle('Fächer', semSel)}
     <div class="wrap">
-    ${subs.length ? `
+    ${subs.length ? `<div class="md"><div class="master">
       <div class="stats" style="margin-top:8px">
         <button class="stat" data-act="backlog"><div class="k">Offen</div><div class="val">${openCount}</div></button>
         <div class="stat"><div class="k">Sicherheit</div><div class="val">${fmtStars(avg)}${avg != null ? '<small>/ 5</small>' : ''}</div></div>
@@ -318,15 +322,16 @@ export function renderSubjects(el) {
       ${tip('subjects', 'book', 'Dein Lern-Cockpit', 'Hier siehst du pro Fach, was noch offen ist und wo deine Sterne niedrig sind – ideal vor den Prüfungen.')}
       <div class="gh">${subs.length} Fächer</div>
       <div class="group">${stats.map(row).join('')}</div>
-      ${openCount || weakCount ? `<div class="group" style="margin-top:12px"><button class="cell" data-act="backlog"><span class="main"><span class="t">Nachholen & Wiederholen</span></span><span class="v">${openCount + weakCount}</span>${icon('right', 'chev')}</button></div>` : ''}`
+      ${openCount || weakCount ? `<div class="group" style="margin-top:12px"><button class="cell" data-act="backlog"><span class="main"><span class="t">Nachholen & Wiederholen</span></span><span class="v">${openCount + weakCount}</span>${icon('right', 'chev')}</button></div>` : ''}
+      </div><div class="detail">${subjectDetailInline(selId)}</div></div>`
     : `<div class="empty">${icon('book')}<h3>Noch keine Fächer</h3><p>Leg deinen Stundenplan an – deine Fächer erscheinen dann hier mit Fortschritt und Statistik.</p><button class="btn small primary" data-act="editTT">Stundenplan anlegen</button></div>`}
     </div>`;
 }
 
-export function renderSubjectPage(el, subjectId) {
+function subjectParts(subjectId) {
   const I = idx();
   const sub = I.subById.get(subjectId);
-  if (!sub) { el.innerHTML = `${navBar({ left: backBtn('Fächer') })}<div class="empty"><h3>Fach nicht gefunden</h3></div>`; return; }
+  if (!sub) return null;
   const t = today();
   const st = S.subjectStats(I, sub.id, t, nowMin(), F());
   const exams = store.data.exams.filter((e) => e.subject_id === sub.id && (e.until_date || e.on_date) >= t).sort((a, b) => (a.on_date < b.on_date ? -1 : 1));
@@ -337,10 +342,7 @@ export function renderSubjectPage(el, subjectId) {
   const subline = [sub.code, ne ? `${S.EXAM_KINDS[ne.kind]?.label} ${relDays(S.diffDays(t, ne.on_date))}` : ''].filter(Boolean).map(esc).join(' · ');
   const byDate = (a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.startMin - b.startMin);
 
-  el.innerHTML = `
-    ${navBar({ title: sub.name, left: backBtn('Fächer'), right: `<button class="nav-btn" data-act="editSubject" data-id="${sub.id}">Bearbeiten</button>` })}
-    <div data-c="${sub.color}">${largeTitle(sub.name, subline)}</div>
-    <div class="wrap">
+  const body = `
       <div class="stats" style="margin-top:8px">
         <div class="stat"><div class="k">Bearbeitet</div><div class="val">${st.progress == null ? '–' : Math.round(st.progress) + '<small>%</small>'}</div></div>
         <div class="stat"><div class="k">Sicherheit</div><div class="val">${fmtStars(st.avgStars)}${st.avgStars != null ? '<small>/ 5</small>' : ''}</div></div>
@@ -355,7 +357,25 @@ export function renderSubjectPage(el, subjectId) {
       <div class="group">${series.map((x) => `<button class="cell" data-act="editSeries" data-id="${x.id}"><span class="main"><span class="t">${x.once_on ? fmtDate(x.once_on) : WD_LONG[x.weekday - 1]} · ${S.hhmm(x.starts_at)}–${S.hhmm(x.ends_at)}</span><span class="s">${[KIND(x.kind), x.room, x.group_label, x.mandatory ? 'Pflicht' : ''].filter(Boolean).map(esc).join(' · ')}</span></span>${icon('right', 'chev')}</button>`).join('')}
         <button class="cell accent" data-act="newSeries" data-subject="${sub.id}"><span class="main"><span class="t">Termin hinzufügen</span></span></button></div>
       <div class="group" style="margin-top:12px"><button class="cell accent" data-act="newExam" data-subject="${sub.id}"><span class="main"><span class="t">Prüfung hinzufügen</span></span></button></div>
-    </div>`;
+`;
+  return { sub, subline, body };
+}
+
+export function renderSubjectPage(el, subjectId) {
+  const p = subjectParts(subjectId);
+  if (!p) { el.innerHTML = `${navBar({ left: backBtn('Fächer') })}<div class="empty"><h3>Fach nicht gefunden</h3></div>`; return; }
+  el.innerHTML = `
+    ${navBar({ title: p.sub.name, left: backBtn('Fächer'), right: `<button class="nav-btn" data-act="editSubject" data-id="${p.sub.id}">Bearbeiten</button>` })}
+    <div data-c="${p.sub.color}">${largeTitle(p.sub.name, p.subline)}</div>
+    <div class="wrap">${p.body}</div>`;
+}
+
+/** Fach-Details direkt neben der Liste (iPad / breite Bildschirme). */
+function subjectDetailInline(subjectId) {
+  const p = subjectParts(subjectId);
+  if (!p) return `<div class="detail-empty muted">Wähle links ein Fach.</div>`;
+  return `<div class="lt-row" style="padding-top:10px"><h2 style="margin:0;font-size:1.6rem;font-weight:700;flex:1;min-width:0" data-c="${p.sub.color}">${esc(p.sub.name)}</h2><button class="nav-btn" data-act="editSubject" data-id="${p.sub.id}">Bearbeiten</button></div>
+    ${p.subline ? `<p class="lt-sub" style="margin:0 0 4px">${p.subline}</p>` : ''}${p.body}`;
 }
 
 // ======================= NACHHOLEN =======================
@@ -402,9 +422,12 @@ export function renderExams(el) {
     <div class="wrap">
       ${hero}
       ${!ne ? `<div class="empty" style="padding-bottom:12px">${icon('cap')}<h3>Noch keine Klausur eingetragen</h3><p>Sobald deine Prüfungstermine feststehen, trag sie hier ein – dann siehst du den Countdown und wirst erinnert.</p><button class="btn small primary" data-act="newExam">Prüfung hinzufügen</button></div>` : ''}
+      <div class="split"><div class="primary">
       ${running.length ? `<div class="gh">Läuft gerade</div><div class="group">${running.map((e) => examRow(e)).join('')}</div>` : ''}
       ${rest.length ? `<div class="gh">Anstehend</div><div class="group">${rest.map((e) => examRow(e)).join('')}</div>` : ''}
+      </div><aside class="side">
       ${periods.length ? `<div class="gh">Zeiträume</div><div class="group">${periods.map((e) => examRow(e)).join('')}</div>` : ''}
       ${past.length ? `<div class="gh">Vorbei<button class="link" data-act="togglePast">${ui.showPast ? 'Ausblenden' : 'Anzeigen'}</button></div>${ui.showPast ? `<div class="group">${past.map((e) => examRow(e)).join('')}</div>` : ''}` : ''}
+      </aside></div>
     </div>`;
 }

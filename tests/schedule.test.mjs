@@ -190,3 +190,21 @@ test('Einstellungen normalisieren: kaputte Werte fallen auf Standard zurück', (
   assert.equal(s.quiet.from, '22:00');
   assert.deepEqual(S.normalizeSettings(null).offsets, [1440, 180]);
 });
+
+test('Kalender-Export (.ics) ist gültig aufgebaut', async () => {
+  globalThis.document ??= undefined;
+  const { buildIcs } = await import('../js/apple.js');
+  const ics = buildIcs([
+    { uid: 'a', title: 'Mathe 1 · Vorlesung; Raum, neu', date: '2026-10-20', start: '09:00', end: '11:30', location: 'HS7', alarmMin: 60 },
+    { uid: 'b', title: 'Prüfungsanmeldung', date: '2026-10-12', endDate: '2026-10-18' },
+  ], 'Studyloop');
+  assert.match(ics, /^BEGIN:VCALENDAR\r\n/);
+  assert.match(ics, /END:VCALENDAR\r\n$/);
+  assert.match(ics, /DTSTART;TZID=Europe\/Berlin:20261020T090000/);
+  assert.match(ics, /DTEND;TZID=Europe\/Berlin:20261020T113000/);
+  assert.ok(ics.includes('SUMMARY:Mathe 1 · Vorlesung\\; Raum\\, neu'), 'Sonderzeichen maskiert');
+  assert.match(ics, /DTSTART;VALUE=DATE:20261012\r\nDTEND;VALUE=DATE:20261019/);
+  assert.match(ics, /TRIGGER:-PT60M/);
+  assert.equal((ics.match(/BEGIN:VEVENT/g) || []).length, 2);
+  assert.ok(ics.split('\r\n').every((l) => l.length <= 75), 'Zeilen max. 75 Zeichen');
+});
