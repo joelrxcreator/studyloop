@@ -524,6 +524,59 @@ await test('Mitteilungszentrale: Glocke, gelesen, Zahl am App-Symbol, Wischen zu
   await ctx.close();
 });
 
+await test('Demnächst Pflicht & Semesterübersicht', async () => {
+  const { page, errors, ctx } = await ready();
+  // dritten Termin heute (13:30) als Pflicht markieren
+  await page.locator('.occ').nth(2).click();
+  await page.waitForSelector('.sheet-wrap.open [data-sw="mandatory"]');
+  await page.waitForTimeout(400);
+  await page.locator('[data-sw="mandatory"]').check({ force: true });
+  await page.waitForTimeout(500);
+  await page.locator('.sheet-h [data-close]').click();
+  await page.waitForTimeout(500);
+  const card = page.locator('#main .gh', { hasText: 'Demnächst Pflicht' });
+  assert.equal(await card.count(), 1, 'Karte auf Heute');
+  await shot(page, '30-heute-pflicht');
+  await card.locator('[data-act="pflicht"]').click();
+  await page.waitForSelector('.page.in .pf-row');
+  await page.waitForTimeout(400);
+  await shot(page, '31-pflicht');
+  const rows = await page.locator('.page.in .pf-row').allInnerTexts();
+  assert.ok(rows.some((r) => /Werkstoffe/.test(r) && /13:30/.test(r)), 'Pflichttermin dabei');
+  assert.ok(rows.some((r) => /Anmeldefrist|Prüfungsanmeldung/.test(r)), 'Frist dabei');
+  assert.ok(rows.some((r) => /Klausur/.test(r)) || rows.length >= 2, 'Prüfungen dabei');
+  // jede Woche bekommt den Pflichttermin (Reihe?) – nur der eine Termin wurde markiert
+  assert.equal(rows.filter((r) => /Werkstoffe/.test(r)).length, 1);
+  await page.locator('.page.in [data-seg="pf"] [data-v="exam"]').click();
+  await page.waitForTimeout(200);
+  assert.ok(!(await page.locator('.page.in .pf-row').allInnerTexts()).some((r) => /Werkstoffe/.test(r)), 'Filter Prüfungen');
+  await overflowCheck(page, 'Pflicht');
+  await page.locator('.page.in [data-act="back"]').click();
+  await page.waitForTimeout(500);
+  // Prüfungen-Tab hat den Einstieg
+  await page.locator('[data-tab="exams"]').click();
+  await page.waitForSelector('#main [data-act="pflicht"]');
+  // Woche: Semesterübersicht
+  await page.locator('[data-tab="week"]').click();
+  await page.waitForSelector('#main .lt-link');
+  await page.locator('#main .lt-link').click();
+  await page.waitForSelector('.sheet-wrap.open .sm-tile');
+  await page.waitForTimeout(500);
+  await shot(page, '32-semester');
+  const tiles = page.locator('.sheet-wrap.open .sm-tile');
+  assert.ok(await tiles.count() >= 15, 'alle Wochen: ' + await tiles.count());
+  assert.equal(await page.locator('.sheet-wrap.open .sm-tile.cur').count(), 1);
+  assert.match(await page.locator('.sheet-wrap.open .sm-tile.cur').innerText(), /KW 42/);
+  assert.ok(await page.locator('.sheet-wrap.open .sm-tile.k-project, .sheet-wrap.open .sm-tile.k-free, .sheet-wrap.open .sm-tile.k-exams').count() >= 1, 'andere Wochenarten');
+  assert.ok(await page.locator('.sheet-wrap.open .mk.ex').count() >= 1, 'Prüfung markiert');
+  await overflowCheck(page, 'Semesterübersicht');
+  await page.locator('.sheet-wrap.open .sm-tile', { hasText: 'KW 46' }).click();
+  await page.waitForTimeout(600);
+  assert.match(await page.locator('#main .lt-sub').innerText(), /KW 46/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 await test('Zwei Geräte: Änderungen erscheinen live und nach Neustart überall gleich', async () => {
   const mock = createMock();
   const phone = await ready({ mock });

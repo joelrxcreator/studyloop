@@ -5,6 +5,7 @@ import { icon } from './icons.js';
 import { esc, fmtDate, fmtLong, fmtRange, fmtHours, relDays, fmtStars, miniStars, WD, WD_LONG, navBar, largeTitle, backBtn, tip } from './ui.js';
 import { ui, today, nowMin, currentSemester, subjectsOf } from './ctx.js';
 import { bellBtn } from './inbox.js';
+import { pflichtCard } from './overview.js';
 
 const KIND = (k) => S.KINDS[k]?.label || 'Termin';
 const F = () => store.settings.trackFrom;
@@ -13,12 +14,18 @@ const settingsBtn = () => `${bellBtn()}<button class="nav-btn" data-act="setting
 /** Prüfungen/Fristen, die an diesem Tag als Termin zählen (Zeiträume nur am letzten Tag). */
 const markedExams = (d) => S.examsOn(store.data, d).filter((e) => (e.kind === 'exam' || e.kind === 'oral' || e.kind === 'submission' || e.kind === 'other') ? e.on_date === d : e.kind !== 'period' && (e.until_date || e.on_date) === d);
 
+/** Hängt im Stundenplan etwas von hellen/dunklen Wochen ab? Sonst blenden wir das aus. */
+function usesParity(sem) {
+  const subIds = new Set(store.data.subjects.filter((x) => x.semester_id === sem.id).map((x) => x.id));
+  return store.data.series.some((sr) => subIds.has(sr.subject_id) && (sr.weeks_rule === 'A' || sr.weeks_rule === 'B'));
+}
+
 function weekText(date) {
   const sem = S.semesterFor(store.data.semesters, date);
   const wi = S.weekInfo(sem, date);
   const kw = `KW ${S.isoWeek(date)}`;
   if (!wi) return kw;
-  if (wi.kind === 'lecture') return wi.parity ? `${kw} · ${S.parityLabel(sem, wi.parity)}` : kw;
+  if (wi.kind === 'lecture') return wi.parity && usesParity(sem) ? `${kw} · ${S.parityLabel(sem, wi.parity)}` : kw;
   return `${kw} · ${S.WEEK_KINDS[wi.kind]}`;
 }
 
@@ -166,10 +173,7 @@ export function renderDay(el) {
       catchUp = `<div class="gh">Nachholen<button class="link" data-act="backlog">Alle ${earlier.length}</button></div>
         <div class="group">${earlier.slice(0, 3).map((o) => occRow(o, { showDate: true })).join('')}</div>`;
     }
-    const ne = nextExam(S.addDays(t, 1));
-    const deadlines = store.data.exams.filter((e) => (e.kind === 'registration' || e.kind === 'submission') && e.on_date <= S.addDays(t, 7) && (e.until_date || e.on_date) >= t && !exams.includes(e));
-    const near = [...deadlines, ...(ne && S.diffDays(t, ne.on_date) <= 14 && !deadlines.includes(ne) ? [ne] : [])];
-    if (near.length) soon = `<div class="gh">Demnächst</div><div class="group">${near.map((e) => examRow(e)).join('')}</div>`;
+    soon = pflichtCard();
   }
 
   el.innerHTML = `
@@ -262,8 +266,9 @@ export function renderWeek(el) {
 
   el.innerHTML = `
     ${navBar({ title, right: settingsBtn() })}
-    ${largeTitle(title, `${esc(weekText(mon))}${total ? ' · ' + fmtHours(total) : ''}`, `
+    ${largeTitle(title, `<button class="lt-link" data-act="semMap" aria-label="Semesterübersicht öffnen">${esc(weekText(mon))}${total ? ' · ' + fmtHours(total) : ''}${icon('down', 'chev')}</button>`, `
       <div class="tt-tools">${!isCur ? `<button class="pill-btn" data-act="wk" data-d="0">Heute</button>` : ''}
+      <button class="circle-btn" data-act="semMap" aria-label="Alle Wochen im Überblick">${icon('layers')}</button>
       <button class="circle-btn" data-act="wk" data-d="-7" aria-label="Vorherige Woche">${icon('left')}</button>
       <button class="circle-btn" data-act="wk" data-d="7" aria-label="Nächste Woche">${icon('right')}</button></div>`)}
     ${deadlines.map(({ e, d }) => `<button class="note-banner" data-act="exam" data-id="${e.id}" style="min-height:32px">${icon('hourglass')}<span><b style="color:var(--label)">${esc(e.title)}</b> – ${e.until_date && e.until_date !== e.on_date ? 'endet' : 'am'} ${fmtDate(d)}</span></button>`).join('')}
@@ -272,7 +277,7 @@ export function renderWeek(el) {
       : `<div class="empty">${icon('grid')}<h3>Noch kein Stundenplan</h3><p>Trag deine Vorlesungen, Übungen und Praktika einmal ein – jede Woche ergibt sich dann von selbst.</p><button class="btn small primary" data-act="editTT">Stundenplan anlegen</button></div>`}
     </div>
     <div class="wrap">
-      ${subjects.length ? tip('week', 'grid', 'Dein Stundenplan', 'Wische nach links oder rechts für andere Wochen. Orange Punkte zeigen Offenes, der Balken unter jedem Tag die Auslastung.') : ''}
+      ${subjects.length ? tip('week', 'grid', 'Dein Stundenplan', 'Wische nach links oder rechts für andere Wochen. Tippe auf „KW …“ oben, um alle Wochen des Semesters auf einen Blick zu sehen.') : ''}
       ${open.length ? `<div class="gh">Offen in dieser Woche<span class="num">${fmtHours(openMin)}</span></div><div class="group">${open.map((o) => occRow(o, { showDate: true })).join('')}</div>` : ''}
       ${allOpen > open.length ? `<div class="group" style="margin-top:${open.length ? 12 : 22}px"><button class="cell" data-act="backlog"><span class="main"><span class="t">Alles Offene im Semester</span></span><span class="v">${allOpen}</span>${icon('right', 'chev')}</button></div>` : ''}
     </div>
@@ -422,6 +427,7 @@ export function renderExams(el) {
     ${largeTitle('Prüfungen')}
     <div class="wrap">
       ${hero}
+      <div class="group" style="margin-top:12px"><button class="cell ic" data-act="pflicht"><span class="sq orange">${icon('alert')}</span><span class="main"><span class="t">Demnächst Pflicht</span><span class="s">Pflichttermine, Prüfungen & Fristen</span></span>${icon('right', 'chev')}</button></div>
       ${!ne ? `<div class="empty" style="padding-bottom:12px">${icon('cap')}<h3>Noch keine Klausur eingetragen</h3><p>Sobald deine Prüfungstermine feststehen, trag sie hier ein – dann siehst du den Countdown und wirst erinnert.</p><button class="btn small primary" data-act="newExam">Prüfung hinzufügen</button></div>` : ''}
       <div class="split"><div class="primary">
       ${running.length ? `<div class="gh">Läuft gerade</div><div class="group">${running.map((e) => examRow(e)).join('')}</div>` : ''}

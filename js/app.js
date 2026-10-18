@@ -12,6 +12,7 @@ import { syncPush } from './push.js';
 import { bindGlassTabbar, placeLens, setBadge } from './apple.js';
 import { openItems } from './views.js';
 import { inboxPage, deleteNotif, clearSystemNotifications } from './inbox.js';
+import { renderPflicht, openSemesterMap } from './overview.js';
 
 const app = document.getElementById('app');
 let mode = null; // auth | loading | onboarding | main
@@ -167,6 +168,8 @@ async function onAction(e) {
     case 'tip': tipDismiss(b.dataset.id); b.closest('.tip')?.remove(); break;
     case 'settings': nav.openSettings(); break;
     case 'inbox': openInbox(); break;
+    case 'pflicht': pushPage((el) => renderPflicht(el)); break;
+    case 'semMap': openSemesterMap((mon) => { ui.weekMon = mon; if (ui.tab !== 'week' || pages.length) go('week'); else renderMain(); }); break;
     case 'openNotif': {
       if (b.closest('.nrow-wrap')?.dataset.swiped) break;
       const wrap = b.closest('.nrow-wrap');
