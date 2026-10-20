@@ -502,11 +502,11 @@ export function renderExams(el) {
     const d = S.diffDays(t, ne.on_date);
     const sub = I.subById.get(ne.subject_id);
     const st = sub ? S.subjectStats(I, sub.id, t, nowMin(), F()) : null;
-    hero = `<div class="group" style="margin-top:8px"><button class="cell" data-act="exam" data-id="${ne.id}" ${sub ? `data-c="${sub.color}"` : ''} style="padding:16px;align-items:center">
+    hero = `<div class="group exam-hero" ${sub ? `data-c="${sub.color}"` : ''} style="margin-top:8px"><button class="cell" data-act="exam" data-id="${ne.id}" ${sub ? `data-c="${sub.color}"` : ''} style="padding:16px;align-items:center">
       <span class="main"><span class="s" style="margin:0 0 2px">Nächste Prüfung</span><span class="t" style="font-size:1.3rem;font-weight:700;line-height:1.2">${esc(ne.title)}</span>
       <span class="s">${S.EXAM_KINDS[ne.kind]?.label} · ${fmtDate(ne.on_date)}${ne.starts_at ? ' · ' + S.hhmm(ne.starts_at) : ''}${ne.room ? ' · ' + esc(ne.room) : ''}</span>
       ${st ? `<span class="s" style="margin-top:6px">${st.open.length ? `<span class="chip amber">${st.open.length} offen</span>` : '<span class="chip green">nichts offen</span>'} ${st.avgStars != null ? `<span class="chip">★ ${fmtStars(st.avgStars)}</span>` : ''}</span>` : ''}</span>
-      <span style="text-align:center;flex:none;min-width:72px"><span style="display:block;font-family:var(--round);font-size:2.6rem;font-weight:700;line-height:1;color:var(--accent);font-variant-numeric:tabular-nums">${d === 0 ? '!' : d}</span><span class="s" style="margin-top:2px">${d === 0 ? 'heute' : d === 1 ? 'Tag' : 'Tage'}</span></span>
+      <span class="cd"><span class="cd-num">${d === 0 ? '!' : d}</span><span class="s">${d === 0 ? 'heute' : d === 1 ? 'Tag' : 'Tage'}</span></span>
     </button></div>`;
   }
   el.innerHTML = `

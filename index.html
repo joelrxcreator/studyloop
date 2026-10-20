@@ -9,7 +9,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Studyloop">
-  <meta name="theme-color" content="#0a0f1a">
+  <meta name="theme-color" content="#070914">
   <meta name="format-detection" content="telephone=no">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=2">
   <link rel="apple-touch-icon" sizes="152x152" href="icons/apple-touch-icon-152.png?v=2">
@@ -24,7 +24,7 @@
         var t = localStorage.getItem('sl.theme') || 'auto';
         if (t !== 'auto') document.documentElement.setAttribute('data-theme', t);
         var dark = t === 'dark' || (t === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
-        document.querySelector('meta[name="theme-color"]').setAttribute('content', dark ? '#000000' : '#f2f2f7');
+        document.querySelector('meta[name="theme-color"]').setAttribute('content', dark ? '#070914' : '#f4f4fa');
       } catch (e) {}
     })();
   </script>

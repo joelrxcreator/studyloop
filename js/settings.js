@@ -18,7 +18,7 @@ export function setTheme(v) {
   const root = document.documentElement;
   if (v === 'auto') root.removeAttribute('data-theme'); else root.setAttribute('data-theme', v);
   const dark = v === 'dark' || (v === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#000000' : '#f2f2f7');
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#070914' : '#f4f4fa');
 }
 
 let subscribedCache = null;

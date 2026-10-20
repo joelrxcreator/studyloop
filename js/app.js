@@ -66,6 +66,17 @@ function buildShell() {
   bindScroll(main);
   bindSwipes(main);
   bindPullToRefresh(main);
+  playEnter(main);
+}
+
+// Inhalte gleiten beim Öffnen eines Bereichs gestaffelt herein (nur dann – nicht bei jedem Neuzeichnen)
+let enterTimer = 0;
+function playEnter(el) {
+  el.classList.remove('enter');
+  void el.offsetWidth;
+  el.classList.add('enter');
+  clearTimeout(enterTimer);
+  enterTimer = setTimeout(() => el.classList.remove('enter'), 900);
 }
 
 function renderMain() {
@@ -102,7 +113,7 @@ function go(tab, { fromTab = false } = {}) {
     if (tab === 'week') ui.weekMon = S.mondayOf(today());
   }
   const changed = tab !== ui.tab;
-  const apply = () => { if (changed) main.scrollTop = 0; ui.tab = tab; renderMain(); };
+  const apply = () => { if (changed) main.scrollTop = 0; ui.tab = tab; renderMain(); if (changed) playEnter(main); };
   if (changed && document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches) document.startViewTransition(apply);
   else apply();
 }

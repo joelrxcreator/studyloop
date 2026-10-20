@@ -15,7 +15,7 @@ export function renderAuth(el) {
   const ps = pushState();
   el.innerHTML = `<main class="auth">
     <div class="grow"></div>
-    <div class="brand"><img src="icons/icon-192.png" alt=""><h1>Willkommen bei<br>Studyloop</h1></div>
+    <div class="brand"><img src="icons/icon-192.png" alt=""><h1>Willkommen bei<br><span class="grad-t">Studyloop</span></h1></div>
     <div class="features">
       <div class="feature">${icon('grid')}<div><b>Dein Stundenplan</b><p>Vorlesungen, Übungen und Praktika – jede Woche automatisch, auch mit Projekt- und Ferienwochen.</p></div></div>
       <div class="feature">${icon('checkCircle')}<div><b>Nichts mehr vergessen</b><p>Trag pro Termin ein, wie weit du bist und wie sicher du dich fühlst. Studyloop merkt sich, was du nachholen musst.</p></div></div>
