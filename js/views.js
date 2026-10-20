@@ -1,6 +1,6 @@
 // Hauptansichten: Heute, Woche (Stundenplan), Fächer, Fach, Nachholen, Prüfungen.
 import * as S from './schedule.js';
-import { store, idx } from './store.js';
+import { store, idx, putSettings } from './store.js';
 import { icon } from './icons.js';
 import { esc, fmtDate, fmtLong, fmtRange, fmtHours, relDays, fmtStars, miniStars, WD, WD_LONG, navBar, largeTitle, backBtn, tip } from './ui.js';
 import { ui, today, nowMin, currentSemester, subjectsOf } from './ctx.js';
@@ -125,6 +125,94 @@ export function openItems() {
   return { open: open.sort(byDate), weak: weak.sort(byDate) };
 }
 
+// ======================= LERNPLAN =======================
+let planSavedFor = null;
+/**
+ * Lernplan für heute. Wird einmal am Tag festgelegt und in den Einstellungen gespeichert,
+ * damit Abhaken ihn nicht verschiebt und alle Geräte denselben Plan sehen. fresh: neu verteilen.
+ */
+export function todayPlan({ fresh = false } = {}) {
+  const sem = currentSemester();
+  if (!sem) return [];
+  const t = today(), I = idx();
+  let items = !fresh && store.settings.plan?.date === t ? store.settings.plan.items : null;
+  if (!items) {
+    items = S.studyPlan(I, sem.id, t, nowMin(), F()).flatMap((p) => p.items.map((o) => ({ k: o.key, t: o.progress >= 100 ? 'weak' : 'open' })));
+    // erst speichern, wenn die echten Daten da sind – sonst würde ein leerer Plan festgeschrieben
+    if (store.loaded && (fresh || planSavedFor !== t)) {
+      planSavedFor = t;
+      const plan = { date: t, items };
+      if (fresh) putSettings({ plan }); else setTimeout(() => putSettings({ plan }), 0); // nicht mitten im Zeichnen speichern
+    }
+  }
+  const out = [];
+  for (const { k, t: type } of items) {
+    const [sid, d] = k.split('|');
+    const sr = store.data.series.find((s) => s.id === sid);
+    if (!sr) continue;
+    const o = S.makeOcc(I, sr, d);
+    if (!o.subject || o.cancelled) continue;
+    out.push({ o, type, done: S.planItemDone(o, type) });
+  }
+  return out;
+}
+
+/** Geschätzte Restzeit: Offenes anteilig, Wiederholen etwa ein Drittel der Termindauer. */
+const planMinutes = (plan) => plan.filter((x) => !x.done).reduce((a, x) => a + (x.type === 'weak' ? x.o.duration / 3 : (x.o.duration * (100 - x.o.progress)) / 100), 0);
+
+function planRow({ o, type, done }) {
+  const ex = S.nextExamOf(store.data, o.subject.id, today());
+  const meta = [
+    type === 'weak' ? 'Wiederholen' : o.progress > 0 && o.progress < 100 ? `Nachholen · ${o.progress} %` : 'Nachholen',
+    `${KIND(o.series.kind)} vom ${fmtDate(o.date, { weekday: false })}`,
+    ex ? `${S.EXAM_KINDS[ex.kind]?.label || 'Prüfung'} ${relDays(S.diffDays(today(), ex.on_date))}` : '',
+  ].filter(Boolean).join(' · ');
+  const right = type === 'open' ? checkBtn(o)
+    : `<span class="check ${done ? 'done' : ''}" aria-hidden="true"><i style="--p:${done ? 100 : 0}"></i></span>`;
+  return `<div class="cell occ plan ${done ? 'is-done' : ''}" data-c="${o.subject.color || 'slate'}" role="button" tabindex="0" data-act="occ" data-key="${esc(o.key)}">
+    <span class="bar"></span>
+    <div class="main"><div class="name">${esc(o.subject.name)}</div><div class="meta">${meta}</div>
+      ${type === 'weak' ? `<div class="extra">${miniStars(o.stars)}${done ? '' : '<span class="hint">neu bewerten</span>'}</div>` : ''}</div>
+    ${right}
+  </div>`;
+}
+
+function planSection(plan) {
+  if (!plan.length) return '';
+  const done = plan.filter((x) => x.done).length;
+  return `<div class="gh" id="plan">Heute lernen · ${done}/${plan.length}<button class="link" data-act="replan">Neu verteilen</button></div>
+    <div class="group">${plan.map(planRow).join('')}</div>
+    <div class="gf">Verteilt alles Offene gleichmäßig bis zur jeweiligen Prüfung. Zum Wiederholen den Termin öffnen und neu mit Sternen bewerten.</div>`;
+}
+
+function heroCard(plan, sem) {
+  const t = today(), I = idx();
+  const done = plan.filter((x) => x.done).length, left = plan.length - done;
+  const back = S.backlog(I, sem.id, t, nowMin(), F());
+  const st = S.streak(I, store.activity, t);
+  const ne = nextExam();
+  const neDays = ne ? S.diffDays(t, ne.on_date) : null;
+  const subs = [...new Set(plan.filter((x) => !x.done).map((x) => x.o.subject.name))];
+  let num, unit, line;
+  if (!plan.length) { num = icon('checkCircle'); unit = back.count ? '' : 'Alles erledigt'; line = back.count ? 'Für heute ist nichts eingeplant.' : 'Nichts offen – genieß den Tag.'; }
+  else if (!left) { num = icon('checkCircle'); unit = 'Geschafft'; line = `Alle ${plan.length} Einträge für heute erledigt.`; }
+  else { num = left; unit = left === 1 ? 'Eintrag' : 'Einträge'; line = `ca. ${fmtHours(planMinutes(plan))} · ${subs.slice(0, 2).map(esc).join(', ')}${subs.length > 2 ? ` +${subs.length - 2}` : ''}`; }
+  const pct = plan.length ? Math.round((done / plan.length) * 100) : 100;
+  return `<div class="hero ${plan.length && !left ? 'win' : ''}">
+    <button class="hero-main" ${plan.length ? 'data-act="toPlan"' : back.count ? 'data-act="backlog"' : 'disabled'}>
+      <span class="hero-k">Heute lernen</span>
+      <span class="hero-num">${num}${unit ? `<small>${unit}</small>` : ''}</span>
+      <span class="hero-line">${line}</span>
+      ${plan.length ? `<span class="hero-bar" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><i style="width:${pct}%"></i></span>` : ''}
+    </button>
+    <div class="stats hero-tiles">
+      <button class="stat" data-act="backlog"><div class="k">Offen</div><div class="val">${back.count}${back.weak ? `<small>+${back.weak}</small>` : ''}</div></button>
+      <div class="stat"><div class="k">Serie</div><div class="val">${st}<small>${st === 1 ? 'Tag' : 'Tage'}</small></div></div>
+      <button class="stat" data-act="toExams"><div class="k">${ne ? esc(S.EXAM_KINDS[ne.kind]?.label || 'Prüfung') : 'Prüfung'}</div><div class="val">${neDays == null ? '–' : neDays === 0 ? 'heute' : `${neDays}<small>${neDays === 1 ? 'Tag' : 'Tage'}</small>`}</div></button>
+    </div>
+  </div>`;
+}
+
 // ======================= HEUTE =======================
 export function renderDay(el) {
   const date = ui.day, t = today();
@@ -165,14 +253,12 @@ export function renderDay(el) {
   }
 
   // Nur auf "Heute": Offenes von früher und nahe Prüfungen
-  let catchUp = '', soon = '';
+  let catchUp = '', soon = '', hero = '';
+  const curSem = diff === 0 ? currentSemester() : null;
   if (diff === 0) {
-    const { open } = openItems();
-    const earlier = open.filter((o) => o.date < t);
-    if (earlier.length) {
-      catchUp = `<div class="gh">Nachholen<button class="link" data-act="backlog">Alle ${earlier.length}</button></div>
-        <div class="group">${earlier.slice(0, 3).map((o) => occRow(o, { showDate: true })).join('')}</div>`;
-    }
+    const plan = curSem && subjectsOf(curSem.id).length ? todayPlan() : [];
+    if (curSem && subjectsOf(curSem.id).length) hero = heroCard(plan, curSem);
+    catchUp = planSection(plan);
     soon = pflichtCard();
   }
 
@@ -181,6 +267,7 @@ export function renderDay(el) {
     ${largeTitle(title, sub, diff !== 0 ? `<button class="pill-btn" data-act="day" data-d="${t}">Heute</button>` : '')}
     <div class="strip" data-swipe="week">${strip}</div>
     <div class="wrap" data-swipe="day">
+      ${hero}
       ${tip('today', 'checkCircle', 'So funktioniert’s', 'Tippe auf einen Termin, um Fortschritt, Sicherheit und Notizen einzutragen. Mit dem Kreis rechts hakst du ihn direkt ab.')}
       ${note ? `<div class="note-banner" style="margin:10px 4px 0">${note}</div>` : ''}
       <div class="split"><div class="primary">

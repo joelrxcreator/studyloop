@@ -4,7 +4,7 @@ import { store, sb, idx, onChange, onStatus, onError, setUser, load, pendingCoun
 import { icon } from './icons.js';
 import { toast, openSheets, closeAllSheets, tipDismiss, haptic, confirmDialog } from './ui.js';
 import { ui, nav, today } from './ctx.js';
-import { renderDay, renderWeek, renderSubjects, renderSubjectPage, renderExams, renderBacklog } from './views.js';
+import { renderDay, renderWeek, renderSubjects, renderSubjectPage, renderExams, renderBacklog, todayPlan } from './views.js';
 import { openOcc, openSeries, openSubject, openExam, renderTTEditor, renderSemesterEditor, addHoliday, delHoliday, delSemester, newSemester } from './editors.js';
 import { renderSettings, settingsAction, setTheme, getTheme } from './settings.js';
 import { renderAuth, renderOnboarding, askNewPassword } from './auth.js';
@@ -192,6 +192,9 @@ async function onAction(e) {
       break;
     case 'back': popPage(); break;
     case 'backlog': pushPage((el) => renderBacklog(el)); break;
+    case 'replan': todayPlan({ fresh: true }); haptic(); toast('Lernplan für heute neu verteilt'); break;
+    case 'toExams': go('exams'); break;
+    case 'toPlan': document.getElementById('plan')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); break;
     case 'subject':
       if (ui.tab === 'subjects' && !pages.length && matchMedia('(min-width: 900px), (min-width: 760px) and (orientation: landscape)').matches) { ui.subjectSel = b.dataset.id; haptic(); renderMain(); }
       else pushPage((el) => renderSubjectPage(el, b.dataset.id));

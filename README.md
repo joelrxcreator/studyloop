@@ -1,7 +1,7 @@
 # Studyloop
 
 Studien-Begleiter als Web-App für den iPhone-Home-Bildschirm: Stundenplan, Fortschritt & Sterne pro Termin,
-Lern-Cockpit pro Fach, Prüfungs-Countdown und Push-Erinnerungen für Pflichttermine.
+Lern-Cockpit pro Fach, täglicher Lernplan bis zur Prüfung, Prüfungs-Countdown und Push-Erinnerungen für Pflichttermine.
 
 ## Aufbau
 
@@ -16,6 +16,8 @@ Lern-Cockpit pro Fach, Prüfungs-Countdown und Push-Erinnerungen für Pflichtter
 - **Hosting:** GitHub Pages (Branch-Root). Supabase-Projekt `studyloop` (eu-central-1).
 - **Datenmodell:** Terminreihen (`series`) erzeugen die einzelnen Termine; Fortschritt/Sterne/Notiz/Pflicht/Ausfall
   liegen pro Datum in `occurrences`. Semesterwochen (Vorlesung dunkel/hell, Projekt, frei, Prüfungen) stehen im Semester.
+- **Lernplan:** `studyPlan()` in `js/schedule.js` verteilt Offenes (und vor Prüfungen Schwaches) gleichmäßig bis zur Prüfung;
+  der Plan des Tages wird in den Einstellungen festgeschrieben, damit Abhaken ihn nicht verschiebt.
 - **Speichern:** sofort lokal, dann über eine Warteschlange an Supabase (wiederholt bei Netzfehlern, übersteht Neustart).
 
 ## Tests

@@ -308,6 +308,45 @@ export function backlog(idx, semId, today, nowMin, from = null) {
   return out;
 }
 
+/** Nächste Prüfung eines Fachs (Klausur, mündlich, Abgabe) ab heute. */
+export function nextExamOf(data, subjectId, today) {
+  return (data.exams || []).filter((e) => e.subject_id === subjectId && (e.kind === 'exam' || e.kind === 'oral' || e.kind === 'submission') && e.on_date >= today)
+    .sort((a, b) => (a.on_date < b.on_date ? -1 : a.on_date > b.on_date ? 1 : toMin(a.starts_at) - toMin(b.starts_at)))[0] || null;
+}
+
+/**
+ * Lernplan für heute: verteilt Offenes (von früheren Tagen) und – vor einer Prüfung – schwach Bewertetes
+ * gleichmäßig auf die Tage bis zur Prüfung des Fachs (der Prüfungstag selbst zählt nicht).
+ * Fächer ohne Prüfung: nur Offenes, verteilt über `horizon` Tage, zusammen höchstens `freeMax` am Tag (die ältesten zuerst),
+ * damit ein großer Rückstand den Tag nicht erschlägt. Fächer mit Prüfung bekommen immer ihr volles Pensum.
+ * Rückgabe pro Fach: { subject, exam, daysLeft, pool, quota, items }, Fächer mit Prüfung zuerst.
+ */
+export function studyPlan(idx, semId, today, nowMin, from = null, horizon = 14, freeMax = 3) {
+  const out = [];
+  const byDate = (a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.startMin - b.startMin);
+  for (const sub of idx.data.subjects || []) {
+    if (sub.semester_id !== semId) continue;
+    const st = subjectStats(idx, sub.id, today, nowMin, from);
+    if (!st) continue;
+    const exam = nextExamOf(idx.data, sub.id, today);
+    const open = st.open.filter((o) => o.date < today).sort(byDate);
+    const pool = exam ? [...open, ...sortForReview(st.weak)] : open;
+    if (!pool.length) continue;
+    const daysLeft = exam ? diffDays(today, exam.on_date) : null;
+    const days = exam ? Math.max(1, daysLeft) : horizon;
+    const quota = Math.min(pool.length, Math.ceil(pool.length / days));
+    out.push({ subject: sub, exam, daysLeft, pool, quota, items: pool.slice(0, quota) });
+  }
+  const free = out.filter((p) => !p.exam);
+  const keep = new Set(free.flatMap((p) => p.items).sort(byDate).slice(0, freeMax));
+  for (const p of free) { p.items = p.items.filter((o) => keep.has(o)); p.quota = p.items.length; }
+  return out.filter((p) => p.items.length).sort((a, b) => (a.exam && b.exam ? (a.exam.on_date < b.exam.on_date ? -1 : a.exam.on_date > b.exam.on_date ? 1 : 0) : a.exam ? -1 : b.exam ? 1 : 0)
+    || (a.subject.sort ?? 0) - (b.subject.sort ?? 0));
+}
+
+/** Ein Plan-Eintrag ist geschafft: Offenes erledigt bzw. Wiederholtes mit mind. 3 Sternen neu bewertet. */
+export const planItemDone = (o, type) => (type === 'weak' ? o.progress >= 100 && o.stars != null && o.stars >= 3 : o.progress >= 100);
+
 /** Wochenlast: pro Tag Termin-Minuten und offene Minuten. */
 export function weekLoad(idx, monday, today, nowMin, from = null) {
   const days = [];
@@ -357,6 +396,11 @@ export function normalizeSettings(raw) {
   const q = s.quiet && typeof s.quiet === 'object' ? s.quiet : {};
   s.quiet = { on: q.on !== false, from: /^\d\d:\d\d$/.test(q.from) ? q.from : '22:00', to: /^\d\d:\d\d$/.test(q.to) ? q.to : '07:00' };
   s.badge = ['unread', 'open', 'off'].includes(s.badge) ? s.badge : 'unread'; // Zahl am App-Symbol
+  // Lernplan des Tages (fest für den Tag, damit Abhaken ihn nicht verschiebt)
+  const p = s.plan && typeof s.plan === 'object' ? s.plan : null;
+  s.plan = p && isValidDate(p.date) && Array.isArray(p.items)
+    ? { date: p.date, items: p.items.filter((x) => x && typeof x.k === 'string' && x.k.includes('|')).map((x) => ({ k: x.k, t: x.t === 'weak' ? 'weak' : 'open' })).slice(0, 60) }
+    : null;
   return s;
 }
 

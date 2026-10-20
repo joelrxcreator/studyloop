@@ -208,3 +208,48 @@ test('Kalender-Export (.ics) ist gültig aufgebaut', async () => {
   assert.equal((ics.match(/BEGIN:VEVENT/g) || []).length, 2);
   assert.ok(ics.split('\r\n').every((l) => l.length <= 75), 'Zeilen max. 75 Zeichen');
 });
+
+test('Lernplan verteilt Offenes und Schwaches bis zur Prüfung', () => {
+  const d = data();
+  const mathe = d.subjects.find((s) => s.name === 'Mathe 1');
+  const werk = d.subjects.find((s) => s.name === 'Werkstoffe');
+  // Mathe-Klausur in 4 Tagen (Mi 14.10. → So 18.10.), Werkstoffe ohne Prüfung
+  d.exams.push({ id: 'x1', kind: 'exam', title: 'Klausur Mathe 1', subject_id: mathe.id, on_date: '2026-10-18' });
+  const ma = d.series.filter((s) => s.subject_id === mathe.id);
+  // Eine Mathe-Übung schwach bewertet (erledigt, 1 Stern)
+  d.occurrences.push({ series_id: ma[0].id, on_date: '2026-10-05', progress: 100, stars: 1 });
+  const I = S.buildIndex(d);
+  const plan = S.studyPlan(I, d.semesters[0].id, '2026-10-14', 12 * 60);
+  const pm = plan.find((p) => p.subject.id === mathe.id);
+  assert.equal(plan[0], pm, 'Fach mit Prüfung zuerst');
+  assert.equal(pm.daysLeft, 4);
+  assert.ok(pm.pool.some((o) => o.stars === 1), 'Schwaches gehört vor der Prüfung dazu');
+  assert.ok(pm.pool.every((o) => o.date < '2026-10-14'), 'nur Termine von früheren Tagen');
+  assert.equal(pm.quota, Math.ceil(pm.pool.length / 4));
+  assert.equal(pm.items.length, pm.quota);
+  const pw = S.studyPlan(I, d.semesters[0].id, '2026-10-14', 12 * 60, null, 14, 99).find((p) => p.subject.id === werk.id);
+  assert.equal(pw.exam, null);
+  assert.equal(pw.quota, Math.ceil(pw.pool.length / 14));
+  assert.ok(pw.pool.every((o) => o.progress < 100), 'ohne Prüfung nur Offenes');
+  // Fächer ohne Prüfung: zusammen höchstens 3 am Tag, die ältesten zuerst
+  const free = plan.filter((p) => !p.exam).flatMap((p) => p.items);
+  assert.ok(free.length <= 3);
+  const allFree = S.studyPlan(I, d.semesters[0].id, '2026-10-14', 12 * 60, null, 14, 99).filter((p) => !p.exam).flatMap((p) => p.items);
+  const keys = new Set(free.map((o) => o.key));
+  assert.ok(free.every((o) => allFree.filter((x) => x.date < o.date).every((x) => keys.has(x.key))), 'älteste zuerst');
+  // Erledigt-Logik
+  assert.ok(S.planItemDone({ progress: 100, stars: null }, 'open'));
+  assert.ok(!S.planItemDone({ progress: 100, stars: 2 }, 'weak'));
+  assert.ok(S.planItemDone({ progress: 100, stars: 3 }, 'weak'));
+  // Prüfung heute → Rest wird heute fällig
+  d.exams[d.exams.length - 1].on_date = '2026-10-14';
+  const p2 = S.studyPlan(S.buildIndex(d), d.semesters[0].id, '2026-10-14', 12 * 60).find((p) => p.subject.id === mathe.id);
+  assert.equal(p2.quota, p2.pool.length);
+});
+
+test('Lernplan in den Einstellungen wird bereinigt', () => {
+  assert.equal(S.normalizeSettings({ plan: 'kaputt' }).plan, null);
+  assert.equal(S.normalizeSettings({ plan: { date: '2026-02-30', items: [] } }).plan, null);
+  assert.deepEqual(S.normalizeSettings({ plan: { date: '2026-10-14', items: [{ k: 'a|2026-10-01', t: 'weak' }, { k: 'x' }, null, { k: 'b|2026-10-02', t: 'quatsch' }] } }).plan,
+    { date: '2026-10-14', items: [{ k: 'a|2026-10-01', t: 'weak' }, { k: 'b|2026-10-02', t: 'open' }] });
+});

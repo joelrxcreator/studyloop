@@ -619,6 +619,61 @@ await test('Zwei Geräte: Änderungen erscheinen live und nach Neustart überall
   await phone.ctx.close(); await pad.ctx.close();
 });
 
+await test('Lernplan: Hero-Karte, abhaken, bleibt fest nach Neuladen, neu verteilen, Prüfung zieht vor', async () => {
+  const { page, errors, ctx, mock } = await newApp({ time: '2026-10-21T10:40:00+02:00' });
+  await signUp(page);
+  await page.getByText('Hochschule Bonn-Rhein-Sieg').click();
+  await page.getByText('ET1-EK3 · Gruppe B').click();
+  await page.getByText('Alles seit Semesterbeginn').click();
+  if (await page.locator('[data-skip]').count()) await page.locator('[data-skip]').click();
+  await page.waitForSelector('.hero');
+  const plan = () => page.locator('#main .occ.plan');
+  const heroNum = () => page.locator('#main .hero-num').innerText();
+  // ohne Prüfung: höchstens 3 Einträge am Tag
+  assert.equal(await plan().count(), 3);
+  assert.match(await heroNum(), /^3\s*Einträge/);
+  await page.waitForFunction(() => true);
+  await page.waitForTimeout(400);
+  assert.equal(mock.db.settings[0]?.data.plan?.date, '2026-10-21', 'Plan für heute gespeichert');
+  const planned = mock.db.settings[0].data.plan.items.map((x) => x.k);
+  // abhaken: Zahl sinkt, Eintrag bleibt durchgestrichen im Plan
+  await plan().first().locator('[data-act="done"]').click();
+  await page.waitForTimeout(400);
+  assert.match(await heroNum(), /^2\s*Einträge/);
+  assert.equal(await plan().count(), 3);
+  assert.equal(await page.locator('#main .occ.plan.is-done').count(), 1);
+  assert.match(await page.locator('#plan').innerText(), /1\/3/);
+  await shot(page, '40-lernplan');
+  // neu laden: derselbe Plan
+  await page.reload();
+  await page.waitForSelector('.hero');
+  await page.waitForTimeout(500);
+  assert.equal(await page.locator('#main .occ.plan.is-done').count(), 1);
+  assert.deepEqual(mock.db.settings[0].data.plan.items.map((x) => x.k), planned);
+  // alles abhaken → „Geschafft“
+  for (let i = 0; i < 2; i++) { await page.locator('#main .occ.plan:not(.is-done) [data-act="done"]').first().click(); await page.waitForTimeout(250); }
+  assert.match(await heroNum(), /Geschafft/);
+  assert.equal(await page.locator('#main .hero.win').count(), 1);
+  // Mathe-Klausur in 5 Tagen → neu verteilen holt Mathe nach vorn
+  const mathe = mock.db.subjects.find((x) => x.name === 'Mathe 1');
+  mock.db.exams.push({ id: 'e-ma', user_id: mathe.user_id, semester_id: mathe.semester_id, subject_id: mathe.id, kind: 'exam', title: 'Klausur Mathe 1', on_date: '2026-10-26', remind: true });
+  await page.reload();
+  await page.waitForSelector('.hero');
+  await page.locator('[data-act="replan"]').click();
+  await page.waitForTimeout(500);
+  const names = await plan().locator('.name').allInnerTexts();
+  assert.equal(names[0], 'Mathe 1');
+  assert.ok(names.filter((n) => n === 'Mathe 1').length >= 2, 'Mathe bekommt mehr als einen Eintrag pro Tag');
+  assert.match(await page.locator('#main .hero-tiles').innerText(), /Klausur\s*5\s*Tage/);
+  await shot(page, '41-lernplan-pruefung');
+  await overflowCheck(page, 'Lernplan 390');
+  await tapTargets(page, 'Lernplan');
+  await page.setViewportSize({ width: 320, height: 640 });
+  await overflowCheck(page, 'Lernplan 320');
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 await browser.close();
 const failed = results.filter((r) => r[0] === 'FAIL');
 console.log(`\n${results.length - failed.length}/${results.length} ok`);
