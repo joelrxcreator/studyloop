@@ -534,10 +534,16 @@ await test('Demnächst Pflicht & Semesterübersicht', async () => {
   await page.waitForTimeout(500);
   await page.locator('.sheet-h [data-close]').click();
   await page.waitForTimeout(500);
-  const card = page.locator('#main .gh', { hasText: 'Demnächst Pflicht' });
-  assert.equal(await card.count(), 1, 'Karte auf Heute');
-  await shot(page, '30-heute-pflicht');
-  await card.locator('[data-act="pflicht"]').click();
+  // Pflichttermine stehen unter „Prüfungen“ (die nächsten direkt, alle auf der eigenen Seite)
+  await page.locator('[data-tab="exams"]').click();
+  await page.waitForTimeout(400);
+  const card = page.locator('#main .gh', { hasText: 'Pflichttermine' });
+  assert.equal(await card.count(), 1, 'Abschnitt auf Prüfungen');
+  assert.ok((await page.locator('#main .pf-row').allInnerTexts()).some((r) => /Werkstoffe/.test(r) && /13:30/.test(r)), 'Pflichttermin auf Prüfungen');
+  await shot(page, '30-pruefungen-pflicht');
+  // „Alle“ erscheint nur, wenn es mehr gibt – sonst Seite direkt öffnen
+  if (await card.locator('[data-act="pflicht"]').count()) await card.locator('[data-act="pflicht"]').click();
+  else await page.evaluate(() => { const b = document.createElement('button'); b.dataset.act = 'pflicht'; document.querySelector('#main .wrap').appendChild(b); b.click(); b.remove(); });
   await page.waitForSelector('.page.in .pf-row');
   await page.waitForTimeout(400);
   await shot(page, '31-pflicht');
@@ -553,9 +559,6 @@ await test('Demnächst Pflicht & Semesterübersicht', async () => {
   await overflowCheck(page, 'Pflicht');
   await page.locator('.page.in [data-act="back"]').click();
   await page.waitForTimeout(500);
-  // Prüfungen-Tab hat den Einstieg
-  await page.locator('[data-tab="exams"]').click();
-  await page.waitForSelector('#main [data-act="pflicht"]');
   // Woche: Semesterübersicht
   await page.locator('[data-tab="week"]').click();
   await page.waitForSelector('#main .lt-link');
@@ -664,7 +667,7 @@ await test('Lernplan: Hero-Karte, abhaken, bleibt fest nach Neuladen, neu vertei
   const names = await plan().locator('.name').allInnerTexts();
   assert.equal(names[0], 'Mathe 1');
   assert.ok(names.filter((n) => n === 'Mathe 1').length >= 2, 'Mathe bekommt mehr als einen Eintrag pro Tag');
-  assert.match(await page.locator('#main .hero-tiles').innerText(), /Klausur\s*5\s*Tage/);
+  assert.match(await page.locator('#main .hero-foot').innerText(), /Klausur in 5 Tagen/);
   await shot(page, '41-lernplan-pruefung');
   await overflowCheck(page, 'Lernplan 390');
   await tapTargets(page, 'Lernplan');

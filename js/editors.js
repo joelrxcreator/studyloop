@@ -58,7 +58,6 @@ export function openOcc(key) {
           <div ${o.cancelled ? 'hidden' : ''}>
             <div class="gh">Bearbeitet<b data-pct class="num" style="font-family:var(--round);font-size:1.18rem;color:var(--label);text-transform:none">${o.progress} %</b></div>
             <div class="group"><div class="cell" style="padding:2px 16px"><input type="range" class="range" min="0" max="100" step="5" value="${o.progress}" style="--p:${o.progress}%" data-range aria-label="Fortschritt in Prozent"></div></div>
-            <div class="gf">Wie viel der Vorlesung bzw. Übung du schon nachgearbeitet hast.</div>
             <div class="gh">Sicherheit<span data-starhint style="text-transform:none">${hints[o.stars || 0]}</span></div>
             <div class="group"><div class="cell" style="padding:2px 6px"><div class="stars" style="flex:1">${[1, 2, 3, 4, 5].map((n) => `<button data-star="${n}" class="${o.stars >= n ? 'on' : ''}" aria-label="${n} von 5 Sternen">${icon('star')}</button>`).join('')}</div></div></div>
           </div>
@@ -69,7 +68,7 @@ export function openOcc(key) {
           <div class="group" style="margin-top:22px">
             <label class="cell ic"><span class="sq red">${icon('bell')}</span><span class="main"><span class="t">Pflichttermin</span></span>${sw('mandatory', o.mandatory, 'Pflichttermin')}</label>
           </div>
-          <div class="gf">${o.mandatory ? `Du wirst ${esc(offs || 'nicht')} vorher erinnert.` : 'Bei Pflichtterminen bekommst du eine Erinnerung aufs Handy.'}</div>
+          <div class="gf">${o.mandatory ? `Du wirst ${esc(offs || 'nicht')} vorher erinnert.` : 'Mit Erinnerung aufs Handy.'}</div>
 
           <div class="gh">Nur dieser Termin</div>
           <div class="group">
@@ -85,7 +84,7 @@ export function openOcc(key) {
           </div>
 
           <div class="group" style="margin-top:22px"><button class="cell accent" data-series><span class="main"><span class="t">Terminreihe bearbeiten</span></span></button></div>
-          <div class="gf">Ändert alle Wochen dieses Termins, z. B. Raum oder Uhrzeit.</div>
+          <div class="gf">Gilt für alle Wochen dieses Termins.</div>
         </div>`;
         bind();
       };
@@ -424,7 +423,6 @@ export function renderTTEditor(el) {
     ${navBar({ title: 'Stundenplan', left: backBtn(), right: '<button class="nav-btn" data-act="newSubject">Fach +</button>' })}
     ${largeTitle('Stundenplan', esc(sem.name))}
     <div class="wrap">
-    <p class="gf" style="margin-top:0">Trag jeden wiederkehrenden Termin einmal ein – alle Wochen ergeben sich daraus. Tippe einen Termin an, um ihn zu ändern.</p>
     ${subs.map((s) => {
       const list = store.data.series.filter((x) => x.subject_id === s.id).sort((a, b) => order(a) - order(b));
       return `<div class="gh"><span style="display:flex;align-items:center;gap:8px"><span class="dot" data-c="${s.color}"></span>${esc(s.name)}</span><button class="link" data-act="editSubject" data-id="${s.id}">Fach bearbeiten</button></div>

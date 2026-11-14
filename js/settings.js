@@ -1,6 +1,6 @@
 // Einstellungen-Seite.
 import * as S from './schedule.js';
-import { store, sb, putSettings, exportData, importData, clearLocal, pendingCount } from './store.js';
+import { store, sb, putSettings, exportData, importData, clearLocal, pendingCount, unreadCount } from './store.js';
 import { icon } from './icons.js';
 import { esc, sheet, toast, confirmDialog, seg, bindSegs, sw, download, navBar, largeTitle, backBtn } from './ui.js';
 import { currentSemester } from './ctx.js';
@@ -54,7 +54,8 @@ export function renderSettings(el, rerender) {
     ${navBar({ title: 'Einstellungen', left: backBtn() })}
     ${largeTitle('Einstellungen')}
     <div class="wrap">
-    <div class="group" style="margin-top:8px">${pushRows}</div>
+    <div class="group" style="margin-top:8px">${pushRows}
+      <button class="cell ic" data-act="inbox"><span class="sq indigo">${icon('list')}</span><span class="main"><span class="t">Mitteilungszentrale</span></span>${unreadCount() ? `<span class="v">${unreadCount()} neu</span>` : ''}${icon('right', 'chev')}</button></div>
     <div class="gf">${pushFoot}</div>
 
     <div class="gh">Erinnern vor Pflichtterminen & Prüfungen</div>
@@ -70,16 +71,16 @@ export function renderSettings(el, rerender) {
 
     <div class="gh">Zahl am App-Symbol</div>
     <div class="group"><div class="cell">${seg('badge', [['unread', 'Ungelesen'], ['open', 'Offene Termine'], ['off', 'Aus']], st.badge).replace('class="seg"', 'class="seg" style="flex:1"')}</div></div>
-    <div class="gf">${{ unread: 'Zeigt, wie viele Mitteilungen du noch nicht angesehen hast. Öffnest du die Mitteilungen (Glocke oben), verschwindet die Zahl.', open: 'Zeigt, wie viele Termine du noch nacharbeiten musst.', off: 'Keine Zahl am App-Symbol.' }[st.badge]}</div>
+    <div class="gf">${{ unread: 'Zeigt ungelesene Mitteilungen. Öffnest du die Mitteilungszentrale, verschwindet die Zahl.', open: 'Zeigt, wie viele Termine du noch nacharbeiten musst.', off: 'Keine Zahl am App-Symbol.' }[st.badge]}</div>
 
     <div class="gh">Studium</div>
     <div class="group">
       <button class="cell ic" data-act="editTT"><span class="sq indigo">${icon('grid')}</span><span class="main"><span class="t">Stundenplan</span></span>${icon('right', 'chev')}</button>
       ${sem ? `<button class="cell ic" data-act="editSemester" data-id="${sem.id}"><span class="sq blue">${icon('cal')}</span><span class="main"><span class="t">Semester</span></span><span class="v">${esc(sem.name)}</span>${icon('right', 'chev')}</button>` : ''}
-      <label class="cell ic"><span class="sq orange">${icon('repeat')}</span><span class="main"><span class="t">Offen zählen ab</span></span><input type="date" data-trackfrom value="${st.trackFrom || ''}" style="width:150px;flex:none;background:var(--fill);height:36px;line-height:36px" aria-label="Offen zählen ab"></label>
+      <label class="cell ic"><span class="sq orange">${icon('repeat')}</span><span class="main"><span class="t">Zählen ab</span></span><input type="date" class="pill" data-trackfrom value="${st.trackFrom || ''}" aria-label="Offen zählen ab"></label>
       <button class="cell ic" data-act="newSemester"><span class="sq green">${icon('plus')}</span><span class="main"><span class="t">Neues Semester</span></span>${icon('right', 'chev')}</button>
     </div>
-    <div class="gf">${st.trackFrom ? 'Termine vor diesem Datum zählen nur als offen, wenn du sie eingetragen hast.' : 'Alle Termine seit Semesterbeginn zählen als offen, bis du sie einträgst.'}</div>
+    <div class="gf">${st.trackFrom ? 'Termine vor diesem Datum zählen nicht als offen.' : 'Alle Termine seit Semesterbeginn zählen als offen, bis du sie einträgst.'}</div>
 
     <div class="gh">Darstellung</div>
     <div class="group"><div class="cell">${seg('theme', [['auto', 'Automatisch'], ['light', 'Hell'], ['dark', 'Dunkel']], getTheme()).replace('class="seg"', 'class="seg" style="flex:1"')}</div></div>

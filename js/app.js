@@ -2,7 +2,7 @@
 import * as S from './schedule.js';
 import { store, sb, idx, onChange, onStatus, onError, setUser, load, pendingCount, patchOcc, resumeLive, unreadCount, markReadByKey, removeNotifications, notifications, markRead } from './store.js';
 import { icon } from './icons.js';
-import { toast, openSheets, closeAllSheets, tipDismiss, haptic, confirmDialog } from './ui.js';
+import { toast, openSheets, closeAllSheets, haptic, confirmDialog } from './ui.js';
 import { ui, nav, today } from './ctx.js';
 import { renderDay, renderWeek, renderSubjects, renderSubjectPage, renderExams, renderBacklog, todayPlan } from './views.js';
 import { openOcc, openSeries, openSubject, openExam, renderTTEditor, renderSemesterEditor, addHoliday, delHoliday, delSemester, newSemester } from './editors.js';
@@ -176,7 +176,6 @@ async function onAction(e) {
     case 'tab': go(b.dataset.tab); break;
     case 'wk': ui.weekMon = b.dataset.d === '0' ? S.mondayOf(today()) : S.addDays(ui.weekMon, Number(b.dataset.d)); renderMain(); break;
     case 'togglePast': ui.showPast = !ui.showPast; renderMain(); break;
-    case 'tip': tipDismiss(b.dataset.id); b.closest('.tip')?.remove(); break;
     case 'settings': nav.openSettings(); break;
     case 'inbox': openInbox(); break;
     case 'pflicht': pushPage((el) => renderPflicht(el)); break;

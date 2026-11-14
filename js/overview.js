@@ -1,4 +1,4 @@
-// Überblicke: „Demnächst Pflicht“ (alles, was man nicht verpassen darf) und die Semesterübersicht (alle Wochen auf einen Blick).
+// Überblicke: „Pflichttermine & Fristen“ (alles, was man nicht verpassen darf) und die Semesterübersicht (alle Wochen auf einen Blick).
 import * as S from './schedule.js';
 import { store, idx } from './store.js';
 import { icon } from './icons.js';
@@ -65,17 +65,6 @@ function weekHead(mon) {
   return `KW ${S.isoWeek(mon)} · ${fmtRange(mon, S.addDays(mon, 6))}`;
 }
 
-/** Karte für „Heute“: die nächsten Pflicht-Sachen. */
-export function pflichtCard() {
-  const all = pflichtItems();
-  if (!all.length) return '';
-  const t = today();
-  let next = all.filter((x) => S.diffDays(t, x.date) <= 14).slice(0, 3);
-  if (!next.length) next = all.slice(0, 1);
-  return `<div class="gh">Demnächst Pflicht<button class="link" data-act="pflicht">Alle ${all.length}</button></div>
-    <div class="group">${next.map(pflichtRow).join('')}</div>`;
-}
-
 export function renderPflicht(el) {
   const all = pflichtItems();
   const filter = ui.pfFilter || 'all';
@@ -88,13 +77,12 @@ export function renderPflicht(el) {
   }
   const nOcc = all.filter((x) => x.type === 'occ').length, nEx = all.length - nOcc;
   el.innerHTML = `
-    ${navBar({ title: 'Demnächst Pflicht', left: backBtn() })}
-    ${largeTitle('Demnächst Pflicht', all.length ? `${nOcc} ${nOcc === 1 ? 'Pflichttermin' : 'Pflichttermine'} · ${nEx} ${nEx === 1 ? 'Prüfung/Frist' : 'Prüfungen & Fristen'}` : '')}
+    ${navBar({ title: 'Pflicht & Fristen', left: backBtn() })}
+    ${largeTitle('Pflicht & Fristen', all.length ? `${nOcc} ${nOcc === 1 ? 'Pflichttermin' : 'Pflichttermine'} · ${nEx} ${nEx === 1 ? 'Prüfung/Frist' : 'Prüfungen & Fristen'}` : '')}
     <div class="wrap">
       ${all.length ? `<div style="margin:6px 0 4px">${seg('pf', [['all', 'Alles'], ['occ', 'Pflichttermine'], ['exam', 'Prüfungen']], filter).replace('class="seg"', 'class="seg" style="width:100%"')}</div>` : ''}
       ${list.length ? [...groups].map(([mon, items]) => `<div class="gh">${weekHead(mon)}<span class="num">${items.length}</span></div><div class="group">${items.map(pflichtRow).join('')}</div>`).join('')
         : `<div class="empty" style="padding-top:48px">${icon('alert')}<h3>${all.length ? 'Nichts in dieser Auswahl' : 'Nichts Pflicht in Sicht'}</h3><p>Pflichttermine markierst du im Termin („Pflichttermin“) oder für eine ganze Reihe im Stundenplan. Prüfungen und Fristen trägst du unter „Prüfungen“ ein.</p></div>`}
-      ${list.length ? '<div class="gf">Pflichttermine aus deinem Stundenplan und alle anstehenden Prüfungen, Abgaben und Fristen – bis Semesterende.</div>' : ''}
     </div>`;
   bindSegs(el, (name, v) => { if (name === 'pf') { ui.pfFilter = v; renderPflicht(el); } });
 }

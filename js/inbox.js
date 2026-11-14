@@ -5,10 +5,11 @@ import { icon } from './icons.js';
 import { esc, fmtDate, navBar, largeTitle, backBtn } from './ui.js';
 import { today } from './ctx.js';
 
-/** Glocke für die Navigationsleiste – mit roter Zahl, solange etwas ungelesen ist. */
+/** Glocke für die Navigationsleiste – nur sichtbar, solange etwas ungelesen ist (sonst erreichbar über Einstellungen). */
 export function bellBtn() {
   const n = unreadCount();
-  return `<button class="nav-btn bell" data-act="inbox" aria-label="Mitteilungen${n ? `, ${n} ungelesen` : ''}">${icon('bell')}${n ? `<span class="nb">${n > 99 ? '99+' : n}</span>` : ''}</button>`;
+  if (!n) return '';
+  return `<button class="nav-btn bell" data-act="inbox" aria-label="Mitteilungen, ${n} ungelesen">${icon('bell')}<span class="nb">${n > 99 ? '99+' : n}</span></button>`;
 }
 
 const kindOf = (key = '') => (key.startsWith('o|') ? ['indigo', 'cal'] : key.startsWith('e|') ? ['orange', 'cap'] : ['red', 'bell']);

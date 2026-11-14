@@ -13,6 +13,8 @@ Lern-Cockpit pro Fach, täglicher Lernplan bis zur Prüfung, Prüfungs-Countdown
 | Server-Funktion (Web Push alle 5 min, Test, Konto löschen) | `supabase/functions/reminders/` |
 | Vorlagen (HBRS WiSe 26/27, ET1-EK3 Gr. B) | `js/presets.js` |
 
+- **Design (v3 „Ruhig“):** eine Akzentfarbe (Indigo), flache Karten mit Haarlinie, System-Schrift, normale Tab-Leiste unten.
+  Fachfarben nur als Balken/Tönung. Alle Farben als Tokens in `css/app.css` (hell/dunkel, auch per `data-theme`).
 - **Hosting:** GitHub Pages (Branch-Root). Supabase-Projekt `studyloop` (eu-central-1).
 - **Datenmodell:** Terminreihen (`series`) erzeugen die einzelnen Termine; Fortschritt/Sterne/Notiz/Pflicht/Ausfall
   liegen pro Datum in `occurrences`. Semesterwochen (Vorlesung dunkel/hell, Projekt, frei, Prüfungen) stehen im Semester.
