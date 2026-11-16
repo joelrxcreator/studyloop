@@ -23,55 +23,32 @@ export function setTheme(v) {
 
 let subscribedCache = null;
 
-export function renderSettings(el, rerender) {
-  const st = store.settings;
+/** Zustand der Mitteilungen auf diesem Gerät – für die Zeile in den Einstellungen und die Unterseite. */
+function pushInfo(rerender) {
   const ps = pushState();
-  const sem = currentSemester();
   if (subscribedCache === null) deviceSubscribed().then((v) => { subscribedCache = v; rerender(); });
   const active = ps.permission === 'granted' && subscribedCache;
+  if (!ps.supported && ps.ios && !ps.standalone) return { ps, active, state: 'home', label: 'Nicht verfügbar' };
+  if (!ps.supported) return { ps, active, state: 'unsupported', label: 'Nicht unterstützt' };
+  if (ps.permission === 'denied') return { ps, active, state: 'denied', label: 'Blockiert' };
+  if (!active) return { ps, active, state: 'off', label: 'Aus' };
+  return { ps, active, state: 'on', label: 'An' };
+}
 
-  let pushRows, pushFoot;
-  if (!ps.supported && ps.ios && !ps.standalone) {
-    pushRows = `<div class="cell ic"><span class="sq gray">${icon('bellOff')}</span><span class="main"><span class="t">Mitteilungen</span></span><span class="v">Nicht verfügbar</span></div>`;
-    pushFoot = `Auf dem iPhone gibt es Mitteilungen nur, wenn Studyloop vom Home-Bildschirm geöffnet wird: In Safari auf Teilen tippen → „Zum Home-Bildschirm“, dann von dort öffnen.`;
-  } else if (!ps.supported) {
-    pushRows = `<div class="cell ic"><span class="sq gray">${icon('bellOff')}</span><span class="main"><span class="t">Mitteilungen</span></span><span class="v">Nicht unterstützt</span></div>`;
-    pushFoot = 'Dieser Browser unterstützt keine Mitteilungen.';
-  } else if (ps.permission === 'denied') {
-    pushRows = `<div class="cell ic"><span class="sq red">${icon('bellOff')}</span><span class="main"><span class="t">Mitteilungen</span></span><span class="v">Blockiert</span></div>`;
-    pushFoot = 'Erlaube sie in den iPhone-Einstellungen → Mitteilungen → Studyloop und öffne die App danach neu.';
-  } else if (!active) {
-    pushRows = `<button class="cell ic" data-act="pushOn"><span class="sq red">${icon('bell')}</span><span class="main"><span class="t accent-t">Mitteilungen erlauben</span></span></button>`;
-    pushFoot = 'Damit du vor Pflichtterminen, Fristen und Prüfungen erinnert wirst – auch wenn die App geschlossen ist.';
-  } else {
-    pushRows = `<div class="cell ic"><span class="sq red">${icon('bell')}</span><span class="main"><span class="t">Mitteilungen</span></span><span class="v">An</span></div>
-      <button class="cell" data-act="pushTest"><span class="main"><span class="t accent-t">Test-Mitteilung senden</span></span></button>
-      <button class="cell" data-act="pushOff"><span class="main"><span class="t accent-t">Auf diesem Gerät ausschalten</span></span></button>`;
-    pushFoot = 'Kommt auch, wenn die App geschlossen ist.';
-  }
+export function renderSettings(el, rerender) {
+  const st = store.settings;
+  const sem = currentSemester();
+  const pi = pushInfo(rerender);
+  const n = unreadCount();
 
   el.innerHTML = `
     ${navBar({ title: 'Einstellungen', left: backBtn() })}
     ${largeTitle('Einstellungen')}
-    <div class="wrap">
-    <div class="group" style="margin-top:8px">${pushRows}
-      <button class="cell ic" data-act="inbox"><span class="sq indigo">${icon('list')}</span><span class="main"><span class="t">Mitteilungszentrale</span></span>${unreadCount() ? `<span class="v">${unreadCount()} neu</span>` : ''}${icon('right', 'chev')}</button></div>
-    <div class="gf">${pushFoot}</div>
-
-    <div class="gh">Erinnern vor Pflichtterminen & Prüfungen</div>
-    <div class="group"><div class="cell"><div class="chips" style="flex:1">${OFFSETS.map((o) => `<button class="pill-toggle" data-act="offset" data-v="${o}" aria-pressed="${st.offsets.includes(o)}">${S.offsetLabel(o)}</button>`).join('')}</div></div></div>
-    <div class="gf">${st.offsets.length ? 'Erinnerung ' + st.offsets.map(S.offsetLabel).join(' und ') + ' vor Beginn.' : 'Keine Erinnerungen vor Pflichtterminen.'}</div>
-    <div class="group" style="margin-top:16px">
-      <label class="cell"><span class="main"><span class="t">Prüfungen 1 Woche vorher</span></span>${sw('examWeek', st.examWeek)}</label>
-      <label class="cell"><span class="main"><span class="t">Nachtruhe</span></span>${sw('quiet', st.quiet.on)}</label>
-      <div class="cell" ${st.quiet.on ? '' : 'hidden'}><div class="grid2" style="flex:1"><label class="field"><span>Von</span><input type="time" data-q="from" value="${st.quiet.from}" style="background:var(--fill)"></label><label class="field"><span>Bis</span><input type="time" data-q="to" value="${st.quiet.to}" style="background:var(--fill)"></label></div></div>
-      <button class="cell" data-act="pushLog"><span class="main"><span class="t">Zustellprotokoll</span></span>${icon('right', 'chev')}</button>
+    <div class="wrap narrow">
+    <div class="group" style="margin-top:8px">
+      <button class="cell ic" data-act="reminders"><span class="sq ${pi.state === 'on' ? 'red' : 'gray'}">${icon(pi.state === 'on' ? 'bell' : 'bellOff')}</span><span class="main"><span class="t">Erinnerungen</span><span class="s">Vor Pflichtterminen, Fristen und Prüfungen</span></span><span class="v">${pi.label}</span>${icon('right', 'chev')}</button>
+      <button class="cell ic" data-act="inbox"><span class="sq indigo">${icon('list')}</span><span class="main"><span class="t">Mitteilungszentrale</span></span>${n ? `<span class="v">${n} neu</span>` : ''}${icon('right', 'chev')}</button>
     </div>
-    <div class="gf">In der Nachtruhe kommt nichts – die Erinnerung kommt dann vorher oder am Morgen.</div>
-
-    <div class="gh">Zahl am App-Symbol</div>
-    <div class="group"><div class="cell">${seg('badge', [['unread', 'Ungelesen'], ['open', 'Offene Termine'], ['off', 'Aus']], st.badge).replace('class="seg"', 'class="seg" style="flex:1"')}</div></div>
-    <div class="gf">${{ unread: 'Zeigt ungelesene Mitteilungen. Öffnest du die Mitteilungszentrale, verschwindet die Zahl.', open: 'Zeigt, wie viele Termine du noch nacharbeiten musst.', off: 'Keine Zahl am App-Symbol.' }[st.badge]}</div>
 
     <div class="gh">Studium</div>
     <div class="group">
@@ -103,11 +80,8 @@ export function renderSettings(el, rerender) {
     <p class="foot-note">Studyloop ${APP_VERSION}</p>
     </div>`;
 
-  bindSegs(el, (name, v) => { if (name === 'theme') setTheme(v); if (name === 'badge') { putSettings({ badge: v }); rerender(); } });
+  bindSegs(el, (name, v) => { if (name === 'theme') setTheme(v); });
   el.querySelector('[data-trackfrom]').addEventListener('change', (e) => putSettings({ trackFrom: e.target.value || null }));
-  el.querySelector('[data-sw="examWeek"]').addEventListener('change', (e) => putSettings({ examWeek: e.target.checked }));
-  el.querySelector('[data-sw="quiet"]').addEventListener('change', (e) => putSettings({ quiet: { ...store.settings.quiet, on: e.target.checked } }));
-  el.querySelectorAll('[data-q]').forEach((i) => i.addEventListener('change', () => { if (/^\d\d:\d\d$/.test(i.value)) putSettings({ quiet: { ...store.settings.quiet, [i.dataset.q]: i.value } }); }));
   el.querySelector('[data-import]').addEventListener('change', async (e) => {
     const file = e.target.files[0];
     e.target.value = '';
@@ -118,6 +92,60 @@ export function renderSettings(el, rerender) {
     if (!(await confirmDialog({ title: 'Sicherung einspielen?', text: `Stand: ${esc(String(json.exported_at || '').slice(0, 10))}. Einträge mit gleicher ID werden mit der Sicherung überschrieben, alles andere bleibt.`, confirm: 'Einspielen' }))) return;
     try { const n = importData(json); toast(`${n} Einträge übernommen`); } catch (err) { toast(err.message, { error: true }); }
   });
+}
+
+/** Unterseite „Erinnerungen“: Mitteilungen auf diesem Gerät, wann erinnert wird, Nachtruhe, Zahl am App-Symbol. */
+export function renderReminders(el, rerender) {
+  const st = store.settings;
+  const pi = pushInfo(rerender);
+  let pushRows, pushFoot;
+  if (pi.state === 'home') {
+    pushRows = `<div class="cell ic"><span class="sq gray">${icon('bellOff')}</span><span class="main"><span class="t">Mitteilungen</span></span><span class="v">Nicht verfügbar</span></div>`;
+    pushFoot = 'Auf dem iPhone gibt es Mitteilungen nur, wenn Studyloop vom Home-Bildschirm geöffnet wird: In Safari auf Teilen tippen → „Zum Home-Bildschirm“, dann von dort öffnen.';
+  } else if (pi.state === 'unsupported') {
+    pushRows = `<div class="cell ic"><span class="sq gray">${icon('bellOff')}</span><span class="main"><span class="t">Mitteilungen</span></span><span class="v">Nicht unterstützt</span></div>`;
+    pushFoot = 'Dieser Browser unterstützt keine Mitteilungen.';
+  } else if (pi.state === 'denied') {
+    pushRows = `<div class="cell ic"><span class="sq red">${icon('bellOff')}</span><span class="main"><span class="t">Mitteilungen</span></span><span class="v">Blockiert</span></div>`;
+    pushFoot = 'Erlaube sie in den Einstellungen deines Geräts → Mitteilungen → Studyloop und öffne die App danach neu.';
+  } else if (pi.state === 'off') {
+    pushRows = `<button class="cell ic" data-act="pushOn"><span class="sq red">${icon('bell')}</span><span class="main"><span class="t accent-t">Mitteilungen erlauben</span></span></button>`;
+    pushFoot = 'Damit du vor Pflichtterminen, Fristen und Prüfungen erinnert wirst – auch wenn die App geschlossen ist.';
+  } else {
+    pushRows = `<div class="cell ic"><span class="sq red">${icon('bell')}</span><span class="main"><span class="t">Mitteilungen</span></span><span class="v">An</span></div>
+      <button class="cell" data-act="pushTest"><span class="main"><span class="t accent-t">Test-Mitteilung senden</span></span></button>
+      <button class="cell" data-act="pushOff"><span class="main"><span class="t accent-t">Auf diesem Gerät ausschalten</span></span></button>`;
+    pushFoot = 'Kommt auch, wenn die App geschlossen ist.';
+  }
+
+  el.innerHTML = `
+    ${navBar({ title: 'Erinnerungen', left: backBtn('Einstellungen') })}
+    ${largeTitle('Erinnerungen')}
+    <div class="wrap narrow">
+    <div class="group" style="margin-top:8px">${pushRows}</div>
+    <div class="gf">${pushFoot}</div>
+
+    <div class="gh">Wie lange vorher?</div>
+    <div class="group"><div class="cell"><div class="chips" style="flex:1">${OFFSETS.map((o) => `<button class="pill-toggle" data-act="offset" data-v="${o}" aria-pressed="${st.offsets.includes(o)}">${S.offsetLabel(o)}</button>`).join('')}</div></div></div>
+    <div class="gf">${st.offsets.length ? 'Erinnerung ' + st.offsets.map(S.offsetLabel).join(' und ') + ' vor Pflichtterminen und Prüfungen.' : 'Keine Erinnerungen vor Pflichtterminen.'}</div>
+    <div class="group" style="margin-top:16px">
+      <label class="cell"><span class="main"><span class="t">Prüfungen 1 Woche vorher</span></span>${sw('examWeek', st.examWeek)}</label>
+      <label class="cell"><span class="main"><span class="t">Nachtruhe</span></span>${sw('quiet', st.quiet.on)}</label>
+      <div class="cell" ${st.quiet.on ? '' : 'hidden'}><div class="grid2" style="flex:1"><label class="field"><span>Von</span><input type="time" data-q="from" value="${st.quiet.from}" style="background:var(--fill)"></label><label class="field"><span>Bis</span><input type="time" data-q="to" value="${st.quiet.to}" style="background:var(--fill)"></label></div></div>
+    </div>
+    <div class="gf">In der Nachtruhe kommt nichts – die Erinnerung kommt dann vorher oder am Morgen.</div>
+
+    <div class="gh">Zahl am App-Symbol</div>
+    <div class="group"><div class="cell">${seg('badge', [['unread', 'Ungelesen'], ['open', 'Offene Termine'], ['off', 'Aus']], st.badge).replace('class="seg"', 'class="seg" style="flex:1"')}</div></div>
+    <div class="gf">${{ unread: 'Zeigt ungelesene Mitteilungen. Öffnest du die Mitteilungszentrale, verschwindet die Zahl.', open: 'Zeigt, wie viele Termine du noch nacharbeiten musst.', off: 'Keine Zahl am App-Symbol.' }[st.badge]}</div>
+
+    <div class="group" style="margin-top:22px"><button class="cell" data-act="pushLog"><span class="main"><span class="t">Zustellprotokoll</span></span>${icon('right', 'chev')}</button></div>
+    </div>`;
+
+  bindSegs(el, (name, v) => { if (name === 'badge') { putSettings({ badge: v }); rerender(); } });
+  el.querySelector('[data-sw="examWeek"]').addEventListener('change', (e) => putSettings({ examWeek: e.target.checked }));
+  el.querySelector('[data-sw="quiet"]').addEventListener('change', (e) => putSettings({ quiet: { ...store.settings.quiet, on: e.target.checked } }));
+  el.querySelectorAll('[data-q]').forEach((i) => i.addEventListener('change', () => { if (/^\d\d:\d\d$/.test(i.value)) putSettings({ quiet: { ...store.settings.quiet, [i.dataset.q]: i.value } }); }));
 }
 
 export async function settingsAction(act, btn, rerender) {

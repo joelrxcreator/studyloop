@@ -157,7 +157,7 @@ if (window.visualViewport) {
 document.addEventListener('focusin', (e) => {
   if (e.target.matches('input, textarea, select') && e.target.closest('.sheet')) setTimeout(() => e.target.scrollIntoView({ block: 'center', behavior: 'smooth' }), 300);
 });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && sheets.length) sheets[sheets.length - 1].close(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && sheets.length && !e.defaultPrevented) { e.preventDefault(); sheets[sheets.length - 1].close(); } });
 
 // ---------------- Bestätigen ----------------
 export function confirmDialog({ title, text, confirm = 'OK', cancel = 'Abbrechen', danger = false, typeWord = null }) {
@@ -227,4 +227,67 @@ export function tipDismiss(id) { try { localStorage.setItem('sl.tip.' + id, '1')
 export function tip(id, ic, title, text) {
   if (tipSeen(id)) return '';
   return `<div class="tip"><span class="sq indigo">${icon(ic)}</span><div><b>${esc(title)}</b><p>${text}</p></div><button class="x" data-act="tip" data-id="${id}" aria-label="Tipp schließen">${icon('x')}</button></div>`;
+}
+
+// ---------------- Popover-Menü (für „Neu“ und Rechtsklick) ----------------
+let openMenu = null;
+export const menuOpen = () => !!openMenu;
+export function closeMenu() { openMenu?.close(); }
+/**
+ * Kleines Menü an einem Element oder Punkt.
+ * anchor: Element oder { x, y }. items: [{ label, icon, hint, danger, fn } | 'sep' | { header }].
+ */
+export function popMenu(anchor, items, { focus = false } = {}) {
+  closeMenu();
+  const wrap = document.createElement('div');
+  wrap.className = 'menu-wrap';
+  wrap.innerHTML = `<div class="menu" role="menu">${items.map((it, i) => (it === 'sep' ? '<div class="menu-sep"></div>'
+    : it.header ? `<div class="menu-h">${esc(it.header)}</div>`
+      : `<button role="menuitem" data-i="${i}" class="${it.danger ? 'danger' : ''}">${it.icon ? icon(it.icon) : '<span class="ico"></span>'}<span class="l">${esc(it.label)}</span>${it.hint ? `<kbd>${esc(it.hint)}</kbd>` : ''}</button>`)).join('')}</div>`;
+  document.body.appendChild(wrap);
+  const box = wrap.querySelector('.menu');
+  const bw = box.offsetWidth, bh = box.offsetHeight, W = innerWidth, H = innerHeight;
+  let x, y, ox = 'left', oy = 'top';
+  if (anchor instanceof Element) {
+    const r = anchor.getBoundingClientRect();
+    x = r.right - bw; y = r.bottom + 6;
+    if (x < 8) { x = r.left; } else ox = 'right';
+    if (y + bh > H - 8) { y = Math.max(8, r.top - bh - 6); oy = 'bottom'; }
+  } else {
+    x = anchor.x; y = anchor.y;
+    if (x + bw > W - 8) { x = Math.max(8, x - bw); ox = 'right'; }
+    if (y + bh > H - 8) { y = Math.max(8, y - bh); oy = 'bottom'; }
+  }
+  x = Math.max(8, Math.min(W - bw - 8, x));
+  box.style.left = x + 'px'; box.style.top = y + 'px'; box.style.transformOrigin = `${oy} ${ox}`;
+  const btns = [...box.querySelectorAll('button')];
+  const api = {
+    close() {
+      if (openMenu !== api) return;
+      openMenu = null;
+      wrap.classList.remove('open');
+      removeEventListener('resize', api.close);
+      setTimeout(() => wrap.remove(), 160);
+    },
+  };
+  openMenu = api;
+  wrap.addEventListener('pointerdown', (e) => { if (e.target === wrap) { e.preventDefault(); api.close(); } });
+  wrap.addEventListener('contextmenu', (e) => { e.preventDefault(); if (e.target === wrap) api.close(); });
+  wrap.addEventListener('wheel', () => api.close(), { passive: true });
+  box.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-i]');
+    if (!b) return;
+    api.close();
+    items[Number(b.dataset.i)].fn?.();
+  });
+  wrap.addEventListener('keydown', (e) => {
+    const i = btns.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown') { e.preventDefault(); btns[(i + 1) % btns.length].focus(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); btns[(i - 1 + btns.length) % btns.length].focus(); }
+    else if (e.key === 'Escape' || e.key === 'Tab') { e.preventDefault(); e.stopPropagation(); api.close(); }
+  });
+  addEventListener('resize', api.close);
+  if (focus) btns[0]?.focus();
+  requestAnimationFrame(() => wrap.classList.add('open'));
+  return api;
 }

@@ -14,7 +14,7 @@ export const ui = {
 
 /** Navigations-Funktionen, von app.js gesetzt. */
 export const nav = {
-  go: () => {}, render: () => {}, openSettings: () => {}, pushPage: () => {}, popPage: () => {}, openTimetable: () => {}, closeTimetable: () => {},
+  go: () => {}, render: () => {}, openSettings: () => {}, openReminders: () => {}, pushPage: () => {}, popPage: () => {}, openTimetable: () => {}, closeTimetable: () => {},
 };
 
 export const today = () => S.localDate();

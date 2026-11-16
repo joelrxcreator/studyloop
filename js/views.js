@@ -5,11 +5,21 @@ import { icon } from './icons.js';
 import { esc, fmtDate, fmtLong, fmtRange, fmtHours, relDays, fmtStars, miniStars, WD, WD_LONG, navBar, largeTitle, backBtn } from './ui.js';
 import { ui, today, nowMin, currentSemester, subjectsOf } from './ctx.js';
 import { bellBtn } from './inbox.js';
+import { pushState } from './push.js';
 import { pflichtItems, pflichtRow } from './overview.js';
 
 const KIND = (k) => S.KINDS[k]?.label || 'Termin';
 const F = () => store.settings.trackFrom;
-const settingsBtn = () => `${bellBtn()}<button class="nav-btn" data-act="settings" aria-label="Einstellungen">${icon('gear')}</button>`;
+/** Knöpfe oben rechts auf den Hauptansichten (am Desktop übernimmt das die Seitenleiste). */
+const settingsBtn = () => `${bellBtn()}<button class="nav-btn compact-only" data-act="new" aria-label="Neu">${icon('plus')}</button><button class="nav-btn compact-only" data-act="settings" aria-label="Einstellungen">${icon('gear')}</button>`;
+const wide = () => matchMedia('(min-width: 900px) and (min-height: 500px)').matches;
+
+function durText(min) {
+  min = Math.max(1, Math.round(min));
+  if (min < 60) return `${min} Min.`;
+  const h = Math.floor(min / 60), m = min % 60;
+  return m ? `${h}:${String(m).padStart(2, '0')} Std.` : `${h} Std.`;
+}
 
 /** Prüfungen/Fristen, die an diesem Tag als Termin zählen (Zeiträume nur am letzten Tag). */
 const markedExams = (d) => S.examsOn(store.data, d).filter((e) => (e.kind === 'exam' || e.kind === 'oral' || e.kind === 'submission' || e.kind === 'other') ? e.on_date === d : e.kind !== 'period' && (e.until_date || e.on_date) === d);
@@ -180,7 +190,7 @@ function planSection(plan) {
     <div class="group">${plan.map(planRow).join('')}</div>`;
 }
 
-/** Flache Karte oben auf „Heute“: eine Zahl, eine Zeile, darunter Offenes und nächste Prüfung als Links. */
+/** Karte oben auf „Heute“: eine Zahl, eine Zeile, darunter Offenes und nächste Prüfung als Links. */
 function heroCard(plan, sem) {
   const t = today(), I = idx();
   const done = plan.filter((x) => x.done).length, left = plan.length - done;
@@ -190,8 +200,8 @@ function heroCard(plan, sem) {
   const subs = [...new Set(plan.filter((x) => !x.done).map((x) => x.o.subject.name))];
   let num, unit, line;
   if (!plan.length) { num = icon('checkCircle'); unit = back.count ? 'Heute nichts' : 'Alles erledigt'; line = back.count ? 'Offenes ist auf andere Tage verteilt.' : 'Nichts offen – genieß den Tag.'; }
-  else if (!left) { num = icon('checkCircle'); unit = 'Geschafft'; line = `Alle ${plan.length} Einträge für heute erledigt.`; }
-  else { num = left; unit = left === 1 ? 'Eintrag' : 'Einträge'; line = `ca. ${fmtHours(planMinutes(plan))} · ${subs.slice(0, 2).map(esc).join(', ')}${subs.length > 2 ? ` +${subs.length - 2}` : ''}`; }
+  else if (!left) { num = icon('checkCircle'); unit = 'Geschafft'; line = `Alles für heute erledigt (${plan.length} von ${plan.length}).`; }
+  else { num = left; unit = 'zum Nachholen'; line = `ca. ${fmtHours(planMinutes(plan))} · ${subs.slice(0, 2).map(esc).join(', ')}${subs.length > 2 ? ` +${subs.length - 2}` : ''}`; }
   const pct = plan.length ? Math.round((done / plan.length) * 100) : 100;
   const foot = [
     back.count ? `<button class="hero-link" data-act="backlog">${back.count} offen insgesamt${icon('right', 'chev')}</button>` : '',
@@ -208,6 +218,58 @@ function heroCard(plan, sem) {
   </div>`;
 }
 
+/** Zeile ganz oben: was gerade läuft bzw. als Nächstes ansteht – mit Restzeit. */
+function nowBar(list) {
+  const t = today(), nm = nowMin();
+  const act = list.filter((o) => !o.cancelled);
+  const cur = act.find((o) => o.startMin <= nm && o.endMin > nm);
+  const next = act.find((o) => o.startMin > nm);
+  const where = (o) => [KIND(o.series.kind), o.room ? esc(o.room) : ''].filter(Boolean).join(' · ');
+  if (cur) {
+    const pct = Math.round(((nm - cur.startMin) / Math.max(1, cur.duration)) * 100);
+    return `<button class="nowbar live" data-act="occ" data-key="${esc(cur.key)}" data-c="${cur.subject.color || 'slate'}">
+      <span class="pulse" aria-hidden="true"></span>
+      <span class="main"><span class="k">Läuft gerade</span><span class="t">${esc(cur.subject.name)}</span><span class="s">${where(cur)} · bis ${cur.ends}${next ? ` · danach ${esc(next.subject.name)} ${next.starts}` : ''}</span></span>
+      <span class="v"><small>noch</small>${durText(cur.endMin - nm)}</span>
+      <i class="prog" style="width:${pct}%"></i></button>`;
+  }
+  if (next) {
+    return `<button class="nowbar" data-act="occ" data-key="${esc(next.key)}" data-c="${next.subject.color || 'slate'}">
+      <span class="bar" aria-hidden="true"></span>
+      <span class="main"><span class="k">Als Nächstes</span><span class="t">${esc(next.subject.name)}</span><span class="s">${next.starts} · ${where(next)}</span></span>
+      <span class="v"><small>in</small>${durText(next.startMin - nm)}</span></button>`;
+  }
+  if (act.length) return '';
+  const nc = nextClass(t);
+  if (!nc) return '';
+  const dd = S.diffDays(t, nc.date);
+  return `<button class="nowbar" data-act="day" data-d="${nc.date}" data-c="${nc.subject.color || 'slate'}">
+    <span class="bar" aria-hidden="true"></span>
+    <span class="main"><span class="k">Nächster Termin</span><span class="t">${esc(nc.subject.name)}</span><span class="s">${fmtDate(nc.date)} · ${nc.starts} · ${where(nc)}</span></span>
+    <span class="v">${dd === 1 ? 'morgen' : `<small>in</small>${dd} Tagen`}</span></button>`;
+}
+
+/** „Erste Schritte“: zeigt Neuen in vier Punkten, wie die App funktioniert. Verschwindet, wenn alles erledigt ist. */
+function setupCard() {
+  try { if (localStorage.getItem('sl.setup.hide') === '1') return { html: '', early: false }; } catch { return { html: '', early: false }; }
+  const ps = pushState();
+  const steps = [
+    { done: store.data.series.length > 0, t: 'Stundenplan eintragen', s: 'Fächer und Termine einmal anlegen – gilt dann für jede Woche.', act: 'editTT' },
+    { done: store.data.occurrences.some((o) => o.progress > 0 || o.stars != null), t: 'Einen Termin abhaken', s: 'Kreis antippen = nachgearbeitet. Termin antippen für Prozent, Sterne und Notiz.', act: 'firstOcc' },
+    { done: store.data.exams.some((e) => e.kind === 'exam' || e.kind === 'oral' || e.kind === 'submission'), t: 'Prüfung eintragen', s: 'Dann zählt Studyloop die Tage und verteilt das Lernen bis dahin.', act: 'newExam' },
+  ];
+  if (ps.supported && ps.permission !== 'denied') steps.push({ done: ps.permission === 'granted', t: 'Erinnerungen einschalten', s: 'Vor Pflichtterminen, Fristen und Prüfungen.', act: 'reminders' });
+  const n = steps.filter((x) => x.done).length;
+  if (n === steps.length) return { html: '', early: false };
+  // Ganz neu (noch nichts abgehakt): die Liste steht oben, danach rutscht sie ans Ende
+  const early = !steps[0].done || !steps[1].done;
+  const html = `<div class="gh">Erste Schritte · ${n}/${steps.length}<button class="link" data-act="setupHide">Ausblenden</button></div>
+    <div class="group setup">${steps.map((x, i) => `<button class="cell ic ${x.done ? 'is-done' : ''}" data-act="${x.act}" ${x.done ? 'disabled' : ''}>
+      <span class="step">${x.done ? icon('check') : i + 1}</span>
+      <span class="main"><span class="t">${x.t}</span>${x.done ? '' : `<span class="s">${x.s}</span>`}</span>${x.done ? '' : icon('right', 'chev')}</button>`).join('')}</div>`;
+  return { html, early };
+}
+
 // ======================= HEUTE =======================
 export function renderDay(el) {
   const date = ui.day, t = today();
@@ -218,7 +280,7 @@ export function renderDay(el) {
   const exams = S.examsOn(store.data, date).filter((e) => e.kind !== 'period' || e.on_date === date);
   const diff = S.diffDays(t, date);
   const title = diff === 0 ? 'Heute' : diff === 1 ? 'Morgen' : diff === -1 ? 'Gestern' : WD_LONG[S.weekday(date) - 1];
-  const sub = `${diff === 0 || Math.abs(diff) === 1 ? fmtLong(date) : fmtLong(date, { weekday: false })}${date.slice(0, 4) !== t.slice(0, 4) ? ' ' + date.slice(0, 4) : ''}`;
+  const sub = `${diff === 0 || Math.abs(diff) === 1 ? fmtLong(date) : fmtLong(date, { weekday: false })}${date.slice(0, 4) !== t.slice(0, 4) ? ' ' + date.slice(0, 4) : ''} · ${esc(weekText(date))}`;
 
   const mon = S.mondayOf(date);
   let strip = '';
@@ -227,7 +289,7 @@ export function renderDay(el) {
     const l = S.occurrencesOn(I, d).filter((o) => !o.cancelled);
     const ex = markedExams(d);
     const dots = ex.length ? '<i class="red"></i>' : l.length ? '<i></i>' : '';
-    strip += `<button data-act="day" data-d="${d}" class="${d === t ? 'today' : ''} ${d === date ? 'sel' : ''} ${i > 4 ? 'weekend' : ''}" aria-label="${fmtLong(d)}">
+    strip += `<button data-act="day" data-d="${d}" class="${d === t ? 'today' : ''} ${d === date ? 'sel' : ''} ${i > 4 ? 'weekend' : ''}" aria-label="${fmtLong(d)}" ${d === date ? 'aria-current="date"' : ''}>
       <span class="wd">${WD[i]}</span><span class="dn">${Number(d.slice(8))}</span><span class="dots">${dots}</span></button>`;
   }
 
@@ -239,27 +301,34 @@ export function renderDay(el) {
   else if (wi && wi.kind !== 'lecture') note = `${icon(wi.kind === 'exams' ? 'cap' : 'info')}<span>${{ project: 'Projektwoche – keine regulären Vorlesungen', free: 'Vorlesungsfreie Zeit', exams: 'Prüfungszeit – viel Erfolg!' }[wi.kind]}</span>`;
 
   let content;
-  if (list.length) content = `<div class="gh">${list.filter((o) => !o.cancelled).length} ${list.filter((o) => !o.cancelled).length === 1 ? 'Termin' : 'Termine'}</div>${dayList(list)}`;
+  const nAct = list.filter((o) => !o.cancelled).length;
+  if (list.length) content = `<div class="gh">Stundenplan<span class="num">${nAct} ${nAct === 1 ? 'Termin' : 'Termine'}</span></div>${dayList(list)}`;
   else {
     const nc = nextClass(date);
     content = `<div class="empty">${icon('cal')}<h3>Keine Termine</h3><p>${nc ? `Als Nächstes: ${esc(nc.subject.name)} am ${fmtDate(nc.date)} um ${nc.starts}.` : 'Sobald dein Stundenplan steht, erscheinen hier deine Termine.'}</p>
       ${nc ? `<button class="btn small" data-act="day" data-d="${nc.date}">Zum nächsten Termin</button>` : '<button class="btn small primary" data-act="editTT">Stundenplan anlegen</button>'}</div>`;
   }
 
-  // Nur auf "Heute": Lernplan und Karte oben
-  let catchUp = '', hero = '';
+  // Nur auf "Heute": was läuft, Lernplan, erste Schritte
+  let catchUp = '', hero = '', now = '', setup = { html: '', early: false };
   const curSem = diff === 0 ? currentSemester() : null;
-  if (diff === 0 && curSem && subjectsOf(curSem.id).length) {
-    const plan = todayPlan();
-    hero = heroCard(plan, curSem);
-    catchUp = planSection(plan);
+  if (diff === 0) {
+    setup = setupCard();
+    now = nowBar(list);
+    if (curSem && subjectsOf(curSem.id).length) {
+      const plan = todayPlan();
+      hero = heroCard(plan, curSem);
+      catchUp = planSection(plan);
+    }
   }
 
   el.innerHTML = `
     ${navBar({ title, right: settingsBtn() })}
-    ${largeTitle(title, sub, diff !== 0 ? `<button class="pill-btn" data-act="day" data-d="${t}">Heute</button>` : '')}
-    <div class="strip" data-swipe="week">${strip}</div>
-    <div class="wrap" data-swipe="day">
+    ${largeTitle(title, sub, diff !== 0 ? `<button class="pill-btn" data-act="day" data-d="${t}" title="Zurück zu heute (T)">Heute</button>` : '')}
+    <div class="strip-wrap"><div class="strip" data-swipe="week">${strip}</div></div>
+    <div class="wrap slide" data-swipe="day">
+      ${now}
+      ${setup.early ? `<div class="setup-top">${setup.html}</div>` : ''}
       ${hero}
       ${note ? `<div class="note-banner" style="margin:12px 4px 0">${note}</div>` : ''}
       <div class="split"><div class="primary">
@@ -267,6 +336,7 @@ export function renderDay(el) {
       ${content}
       </div><aside class="side">
       ${catchUp}
+      ${setup.early ? '' : setup.html}
       </aside></div>
     </div>`;
 }
@@ -286,12 +356,16 @@ export function renderWeek(el) {
   const weekend = days.slice(5).some((x) => x.list.length || x.exams.length);
   const shown = weekend ? days : days.slice(0, 5);
   const times = shown.flatMap((x) => [...x.list.filter((o) => !o.cancelled).map((o) => [o.startMin, o.endMin]), ...x.exams.filter((e) => e.starts_at).map((e) => [S.toMin(e.starts_at), e.ends_at ? S.toMin(e.ends_at) : S.toMin(e.starts_at) + 90])]);
-  const start = times.length ? Math.floor(Math.min(...times.map((x) => x[0])) / 30) * 30 : 8 * 60;
-  const end = times.length ? Math.ceil(Math.max(...times.map((x) => x[1])) / 30) * 30 : 18 * 60;
-  const ppm = 1.2;
-  const height = Math.max(160, (end - start) * ppm + 6);
+  const start = times.length ? Math.floor(Math.min(...times.map((x) => x[0])) / 60) * 60 : 8 * 60;
+  const end = times.length ? Math.ceil(Math.max(...times.map((x) => x[1])) / 60) * 60 : 18 * 60;
+  // Am großen Bildschirm passt der ganze Tag ohne Scrollen; am Handy bleibt die Höhe gut lesbar
+  const ppm = wide() ? Math.max(0.85, Math.min(1.5, (innerHeight - 250) / (end - start))) : 1.2;
+  const height = Math.max(160, (end - start) * ppm);
   const subjects = sem ? subjectsOf(sem.id) : [];
   const anything = shown.some((x) => x.list.length || x.exams.length);
+
+  let axis = '';
+  for (let h = start / 60; h <= end / 60; h++) axis += `<span style="top:${(h * 60 - start) * ppm}px">${String(h).padStart(2, '0')}</span>`;
 
   const cols = shown.map(({ d, i, list, exams }) => {
     const items = S.layoutColumns(list);
@@ -299,10 +373,9 @@ export function renderWeek(el) {
     const box = (o, col, ncols, extraCls = '') => {
       const top = (o.startMin - start) * ppm, hh = Math.max(24, o.duration * ppm - 3);
       const w = 100 / ncols, small = hh < 64 || ncols > 1;
-      const due = S.isDue(o, t, nm, F());
-      const flag = o.cancelled ? '' : o.progress >= 100 ? '<span class="done"></span>' : o.mandatory ? '<span class="flag"></span>' : due ? '<span class="flag open"></span>' : '';
-      return `<button class="tt-item ${extraCls}" data-c="${o.subject.color}" data-act="occ" data-key="${esc(o.key)}" style="top:${top}px;height:${hh}px;left:calc(${col * w}% + 3px);right:auto;width:calc(${w}% - 6px)" aria-label="${esc(o.subject.name)} ${o.starts}">
-        ${!small ? `<span class="tm a">${o.starts}</span><span class="tm b">${o.ends}</span>` : ''}${flag}
+      const flag = o.cancelled ? '' : o.progress >= 100 ? '<span class="done"></span>' : o.mandatory ? '<span class="flag"></span>' : '';
+      return `<button class="tt-item ${extraCls} ${o.progress >= 100 ? 'is-done' : ''}" data-c="${o.subject.color}" data-act="occ" data-key="${esc(o.key)}" style="top:${top}px;height:${hh}px;left:calc(${col * w}% + 3px);right:auto;width:calc(${w}% - 6px)" aria-label="${esc(o.subject.name)}, ${S.KINDS[o.series.kind]?.label || ''}, ${o.starts} bis ${o.ends}">
+        ${!small ? `<span class="tm a">${o.starts}</span>` : ''}${flag}
         <b>${esc(o.subject.name)}</b>
         <span class="k">${S.KINDS[o.series.kind]?.short || ''}${o.series.lecturer && !small ? ' ' + esc(o.series.lecturer) : ''}</span>
         ${!small ? `<span class="k">${esc(o.room)}</span>` : ''}
@@ -318,8 +391,9 @@ export function renderWeek(el) {
     if (d === t && nm > start && nm < end) h += `<div class="tt-now" style="top:${(nm - start) * ppm}px"></div>`;
     const hol = S.holidayOn(sem, d);
     if (hol) h += `<div class="tt-pause" style="top:24px"><span>${esc(hol.name)}</span></div>`;
-    return `<div class="tt-col"><div class="tt-dayh ${d === t ? 'today' : ''}"><span class="wd">${WD[i]}</span><span class="dn">${Number(d.slice(8))}</span></div>
-      <div class="tt-body" style="height:${height}px">${h}</div></div>`;
+    h += `<button class="tt-ghost" data-act="slot" hidden tabindex="-1" aria-hidden="true" style="height:${90 * ppm - 3}px"><span></span></button>`;
+    return `<div class="tt-col ${d === t ? 'today' : ''}"><button class="tt-dayh ${d === t ? 'today' : ''}" data-act="day" data-d="${d}" aria-label="${fmtLong(d)} öffnen"><span class="wd">${WD[i]}</span><span class="dn">${Number(d.slice(8))}</span></button>
+      <div class="tt-body" data-wd="${i + 1}" data-ppm="${ppm}" data-start="${start}" data-end="${end}" style="height:${height}px">${h}</div></div>`;
   }).join('');
 
   const all = S.occurrencesBetween(I, mon, sun).filter((o) => !o.cancelled);
@@ -332,13 +406,13 @@ export function renderWeek(el) {
 
   el.innerHTML = `
     ${navBar({ title, right: settingsBtn() })}
-    ${largeTitle(title, `<button class="lt-link" data-act="semMap" aria-label="Alle Wochen des Semesters">${esc(weekText(mon))}${total ? ' · ' + fmtHours(total) : ''}${icon('down', 'chev')}</button>`, `
-      <div class="tt-tools">${!isCur ? `<button class="pill-btn" data-act="wk" data-d="0">Heute</button>` : ''}
-      <button class="circle-btn" data-act="wk" data-d="-7" aria-label="Vorherige Woche">${icon('left')}</button>
-      <button class="circle-btn" data-act="wk" data-d="7" aria-label="Nächste Woche">${icon('right')}</button></div>`)}
+    ${largeTitle(title, `<button class="lt-link" data-act="semMap" aria-label="Alle Wochen des Semesters" title="Alle Wochen des Semesters">${esc(weekText(mon))}${total ? ' · ' + fmtHours(total) : ''}${icon('down', 'chev')}</button>`, `
+      <div class="tt-tools">${!isCur ? `<button class="pill-btn" data-act="wk" data-d="0" title="Zurück zu dieser Woche (T)">Heute</button>` : ''}
+      <button class="circle-btn" data-act="wk" data-d="-7" aria-label="Vorherige Woche" title="Vorherige Woche (←)">${icon('left')}</button>
+      <button class="circle-btn" data-act="wk" data-d="7" aria-label="Nächste Woche" title="Nächste Woche (→)">${icon('right')}</button></div>`)}
     ${deadlines.map(({ e, d }) => `<button class="note-banner" data-act="exam" data-id="${e.id}" style="min-height:32px">${icon('hourglass')}<span><b style="color:var(--label)">${esc(e.title)}</b> – ${e.until_date && e.until_date !== e.on_date ? 'endet' : 'am'} ${fmtDate(d)}</span></button>`).join('')}
-    <div data-swipe="wk">
-    ${subjects.length ? (anything ? `<div class="tt-grid" style="--days:${shown.length}">${cols}</div>` : `<div class="empty">${icon('cal')}<h3>${sem && S.weekInfo(sem, mon)?.kind !== 'lecture' && S.weekInfo(sem, mon) ? S.WEEK_KINDS[S.weekInfo(sem, mon).kind] : 'Keine Termine'}</h3><p>In dieser Woche stehen keine regulären Termine an.</p></div>`)
+    <div data-swipe="wk" class="slide">
+    ${subjects.length ? (anything ? `<div class="tt-grid" style="--days:${shown.length};--hl:${60 * ppm}px"><div class="tt-axis" aria-hidden="true"><div class="tt-dayh"><span class="wd">&nbsp;</span><span class="dn">&nbsp;</span></div><div class="tt-axis-body" style="height:${height}px">${axis}</div></div>${cols}</div>` : `<div class="empty">${icon('cal')}<h3>${sem && S.weekInfo(sem, mon)?.kind !== 'lecture' && S.weekInfo(sem, mon) ? S.WEEK_KINDS[S.weekInfo(sem, mon).kind] : 'Keine Termine'}</h3><p>In dieser Woche stehen keine regulären Termine an.</p></div>`)
       : `<div class="empty">${icon('grid')}<h3>Noch kein Stundenplan</h3><p>Trag deine Vorlesungen, Übungen und Praktika einmal ein – jede Woche ergibt sich dann von selbst.</p><button class="btn small primary" data-act="editTT">Stundenplan anlegen</button></div>`}
     </div>
     <div class="wrap">
@@ -374,12 +448,13 @@ export function renderSubjects(el) {
     if (!parts.length) parts.push(st.due.length ? 'Alles erledigt' : 'Noch nichts fällig');
     return `<button class="cell ic ${s.id === selId ? 'selected' : ''}" data-act="subject" data-id="${s.id}" data-c="${s.color}">
       <span class="sq lg">${esc((s.code || s.name).slice(0, 3))}</span>
-      <span class="main"><span class="t">${esc(s.name)}</span><span class="s">${parts.join(' · ')}</span></span>
+      <span class="main"><span class="t">${esc(s.name)}</span><span class="s">${parts.join(' · ')}</span>
+        ${st.progress != null ? `<span class="pbar" role="progressbar" aria-valuenow="${Math.round(st.progress)}" aria-valuemin="0" aria-valuemax="100" aria-label="Bearbeitet"><i style="width:${Math.round(st.progress)}%"></i></span>` : ''}</span>
       <span class="v">${st.progress != null ? Math.round(st.progress) + ' %' : ''}</span>${icon('right', 'chev')}</button>`;
   };
 
   el.innerHTML = `
-    ${navBar({ title: 'Fächer', right: `${subs.length ? '<button class="nav-btn" data-act="editTT">Bearbeiten</button>' : ''}${settingsBtn()}` })}
+    ${navBar({ title: 'Fächer', right: settingsBtn() })}
     ${largeTitle('Fächer', semSel)}
     <div class="wrap">
     ${subs.length ? `<div class="md"><div class="master">
@@ -390,7 +465,10 @@ export function renderSubjects(el) {
       </div>
       <div class="gh">${subs.length} Fächer</div>
       <div class="group">${stats.map(row).join('')}</div>
-      ${openCount || weakCount ? `<div class="group" style="margin-top:12px"><button class="cell" data-act="backlog"><span class="main"><span class="t">Nachholen & Wiederholen</span></span><span class="v">${openCount + weakCount}</span>${icon('right', 'chev')}</button></div>` : ''}
+      <div class="group" style="margin-top:12px">
+        ${openCount || weakCount ? `<button class="cell" data-act="backlog"><span class="main"><span class="t">Nachholen & Wiederholen</span></span><span class="v">${openCount + weakCount}</span>${icon('right', 'chev')}</button>` : ''}
+        <button class="cell accent" data-act="editTT"><span class="main"><span class="t">Fächer & Stundenplan bearbeiten</span></span></button>
+      </div>
       </div><div class="detail">${subjectDetailInline(selId)}</div></div>`
     : `<div class="empty">${icon('book')}<h3>Noch keine Fächer</h3><p>Leg deinen Stundenplan an – deine Fächer erscheinen dann hier mit Fortschritt und Statistik.</p><button class="btn small primary" data-act="editTT">Stundenplan anlegen</button></div>`}
     </div>`;
@@ -488,7 +566,7 @@ export function renderExams(el) {
   const pflicht = pflichtItems().filter((x) => x.type === 'occ');
   const pflichtNext = pflicht.slice(0, 4);
   el.innerHTML = `
-    ${navBar({ title: 'Prüfungen', right: `<button class="nav-btn" data-act="newExam" aria-label="Prüfung hinzufügen">${icon('plus')}</button>${settingsBtn()}` })}
+    ${navBar({ title: 'Prüfungen', right: settingsBtn() })}
     ${largeTitle('Prüfungen')}
     <div class="wrap">
       ${hero}
@@ -497,6 +575,7 @@ export function renderExams(el) {
       ${running.length ? `<div class="gh">Läuft gerade</div><div class="group">${running.map((e) => examRow(e)).join('')}</div>` : ''}
       ${rest.length ? `<div class="gh">Anstehend</div><div class="group">${rest.map((e) => examRow(e)).join('')}</div>` : ''}
       ${pflichtNext.length ? `<div class="gh">Pflichttermine${pflicht.length > pflichtNext.length ? `<button class="link" data-act="pflicht">Alle ${pflicht.length}</button>` : ''}</div><div class="group">${pflichtNext.map(pflichtRow).join('')}</div>` : ''}
+      ${ne ? `<div class="group" style="margin-top:16px"><button class="cell accent" data-act="newExam"><span class="main"><span class="t">Prüfung oder Frist hinzufügen</span></span></button></div>` : ''}
       </div><aside class="side">
       ${periods.length ? `<div class="gh">Zeiträume</div><div class="group">${periods.map((e) => examRow(e)).join('')}</div>` : ''}
       ${past.length ? `<div class="gh">Vorbei<button class="link" data-act="togglePast">${ui.showPast ? 'Ausblenden' : 'Anzeigen'}</button></div>${ui.showPast ? `<div class="group">${past.map((e) => examRow(e)).join('')}</div>` : ''}` : ''}

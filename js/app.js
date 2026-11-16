@@ -1,24 +1,26 @@
-// Studyloop – Start, Navigation, Gesten.
+// Studyloop – Start, Gerüst (Tab-Leiste / Seitenleiste), Navigation, Gesten, Tastatur.
 import * as S from './schedule.js';
 import { store, sb, idx, onChange, onStatus, onError, setUser, load, pendingCount, patchOcc, resumeLive, unreadCount, markReadByKey, removeNotifications, notifications, markRead } from './store.js';
 import { icon } from './icons.js';
-import { toast, openSheets, closeAllSheets, haptic, confirmDialog } from './ui.js';
+import { toast, openSheets, closeAllSheets, haptic, confirmDialog, popMenu, menuOpen, closeMenu } from './ui.js';
 import { ui, nav, today } from './ctx.js';
-import { renderDay, renderWeek, renderSubjects, renderSubjectPage, renderExams, renderBacklog, todayPlan } from './views.js';
+import { renderDay, renderWeek, renderSubjects, renderSubjectPage, renderExams, renderBacklog, todayPlan, openItems, nextExam } from './views.js';
 import { openOcc, openSeries, openSubject, openExam, renderTTEditor, renderSemesterEditor, addHoliday, delHoliday, delSemester, newSemester } from './editors.js';
-import { renderSettings, settingsAction, setTheme, getTheme } from './settings.js';
+import { renderSettings, renderReminders, settingsAction, setTheme, getTheme } from './settings.js';
 import { renderAuth, renderOnboarding, askNewPassword } from './auth.js';
 import { syncPush } from './push.js';
-import { bindGlassTabbar, placeLens, setBadge } from './apple.js';
-import { openItems } from './views.js';
+import { setBadge } from './apple.js';
 import { inboxPage, deleteNotif, clearSystemNotifications } from './inbox.js';
 import { renderPflicht, openSemesterMap } from './overview.js';
+import { bindWheelSwipe, openSearch, searchOpen, closeSearch, openShortcuts, finePointer, MOD } from './desk.js';
 
 const app = document.getElementById('app');
 let mode = null; // auth | loading | onboarding | main
-let main, tabbar, ptr;
+let main, tabbar, sidebar, ptr;
 const pages = []; // { el, render }
 const TABS = [['day', 'today', 'Heute'], ['week', 'grid', 'Woche'], ['subjects', 'book', 'Fächer'], ['exams', 'cap', 'Prüfungen']];
+const wideQ = matchMedia('(min-width: 900px) and (min-height: 500px)'); // Seitenleiste statt Tab-Leiste
+const twoColQ = matchMedia('(min-width: 1100px) and (min-height: 500px)'); // Fächer: Liste + Details nebeneinander
 
 setTheme(getTheme());
 onError((m) => toast(m, { error: true, ms: 4000 }));
@@ -36,8 +38,10 @@ function render() {
     const wasAuth = mode === 'auth';
     mode = want;
     if (wasAuth || want === 'auth') closeAllSheets();
+    closeMenu(); closeSearch();
     pages.splice(0).forEach((p) => p.el.remove());
     app.innerHTML = '';
+    document.documentElement.classList.toggle('in-app', want === 'main');
     if (want === 'auth') { renderAuth(app); return; }
     if (want === 'loading') {
       app.innerHTML = `<div class="screen no-tabs"><div style="height:calc(60px + var(--safe-t))"></div><div class="wrap"><div class="skel" style="height:36px;width:45%"></div><div class="skel" style="height:16px;width:60%;margin-top:10px"></div><div class="skel" style="height:58px;margin-top:22px"></div><div class="skel" style="height:220px;margin-top:22px"></div></div></div>`;
@@ -49,23 +53,46 @@ function render() {
   if (mode !== 'main') return;
   renderMain();
   for (const p of pages) p.render();
+  if (flashKey) {
+    document.querySelectorAll('.check[data-key]').forEach((b) => { if (b.dataset.key === flashKey) b.classList.add('pop'); });
+    flashKey = null;
+  }
 }
 
 function buildShell() {
   app.innerHTML = `
+    <aside class="sidebar" aria-label="Navigation">
+      <div class="sb-brand"><img src="icons/icon-192.png?v=2" alt="" width="32" height="32"><b>Studyloop</b></div>
+      <button class="sb-new" data-act="new" title="Neu (N)">${icon('plus')}<span>Neu</span><kbd>N</kbd></button>
+      <button class="sb-item" data-act="search" title="Suchen (${MOD}K)">${icon('search')}<span>Suchen</span><kbd>${MOD}K</kbd></button>
+      <nav class="sb-nav" aria-label="Bereiche">${TABS.map(([k, ic, l], i) => `<button class="sb-item" data-tab="${k}" title="${l} (${i + 1})">${icon(ic)}<span>${l}</span><em data-count="${k}"></em></button>`).join('')}</nav>
+      <div class="sb-grow"></div>
+      <button class="sb-item" data-act="inbox">${icon('bell')}<span>Mitteilungen</span><em data-count="inbox"></em></button>
+      <button class="sb-item" data-act="shortcuts" title="Tastenkürzel (?)">${icon('keyboard')}<span>Tastenkürzel</span><kbd>?</kbd></button>
+      <button class="sb-item" data-act="settings" title="Einstellungen (,)">${icon('gear')}<span>Einstellungen</span></button>
+    </aside>
     <div class="screen" id="main"></div>
-    <nav class="tabbar" aria-label="Bereiche"><div class="lens" aria-hidden="true"></div>${TABS.map(([k, ic, l]) => `<button data-tab="${k}" aria-label="${l}">${icon(ic)}<span aria-hidden="true">${l}</span></button>`).join('')}</nav>
+    <nav class="tabbar" aria-label="Bereiche">${TABS.map(([k, ic, l]) => `<button data-tab="${k}" aria-label="${l}">${icon(ic)}<span aria-hidden="true">${l}</span></button>`).join('')}</nav>
     <div class="ptr">${icon('refresh')}</div>`;
   main = app.querySelector('#main');
   tabbar = app.querySelector('.tabbar');
+  sidebar = app.querySelector('.sidebar');
   ptr = app.querySelector('.ptr');
-  bindGlassTabbar(tabbar, (tab, opts) => go(tab, opts));
+  for (const bar of [tabbar, sidebar]) {
+    bar.addEventListener('click', (e) => {
+      const t = e.target.closest('[data-tab]');
+      if (t) { haptic(); go(t.dataset.tab, { fromTab: true }); return; }
+      onAction(e);
+    });
+  }
   main.addEventListener('click', onAction);
   main.addEventListener('change', onChangeAction);
   main.addEventListener('keydown', onKey);
   bindScroll(main);
   bindSwipes(main);
   bindPullToRefresh(main);
+  bindSlotGhost(main);
+  bindWheelSwipe(main, (dir) => { if (ui.tab === 'day') shiftDay(dir); else if (ui.tab === 'week') shiftWeek(dir); }, () => (ui.tab === 'day' || ui.tab === 'week') && !pages.length);
   playEnter(main);
 }
 
@@ -76,16 +103,49 @@ function playEnter(el) {
   void el.offsetWidth;
   el.classList.add('enter');
   clearTimeout(enterTimer);
-  enterTimer = setTimeout(() => el.classList.remove('enter'), 900);
+  enterTimer = setTimeout(() => el.classList.remove('enter'), 700);
 }
 
+let slideDir = 0, slideT = 0;
 function renderMain() {
   main.classList.toggle('wide', ui.tab === 'week');
+  main.dataset.tab = ui.tab;
   ({ day: renderDay, week: renderWeek, subjects: renderSubjects, exams: renderExams }[ui.tab])(main);
-  tabbar.querySelectorAll('[data-tab]').forEach((b) => { if (b.dataset.tab === ui.tab) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
-  placeLens(tabbar, TABS.findIndex(([k]) => k === ui.tab));
+  // Tag/Woche gewechselt: Inhalt gleitet aus der passenden Richtung herein
+  if (slideDir) {
+    main.dataset.slide = slideDir > 0 ? 'next' : 'prev';
+    slideDir = 0;
+    clearTimeout(slideT);
+    slideT = setTimeout(() => { delete main.dataset.slide; }, 340);
+  }
+  syncNav();
+  updateSidebar();
   updateBadge();
   updateScrolled(main);
+}
+
+/** Markiert den aktiven Bereich in Tab-Leiste und Seitenleiste (Einstellungen zählen als eigener Bereich). */
+function syncNav() {
+  if (!tabbar) return;
+  const inSettings = pages.some((p) => p.settings);
+  for (const bar of [tabbar, sidebar]) bar.querySelectorAll('[data-tab]').forEach((b) => { if (b.dataset.tab === ui.tab && !inSettings) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
+  const sb = sidebar.querySelector('[data-act="settings"]');
+  if (inSettings) sb.setAttribute('aria-current', 'page'); else sb.removeAttribute('aria-current');
+}
+
+/** Kleine Zahlen in der Seitenleiste: Offenes, Tage bis zur nächsten Prüfung, ungelesene Mitteilungen. */
+function updateSidebar() {
+  if (!wideQ.matches) return;
+  const set = (k, v) => { const el = sidebar.querySelector(`[data-count="${k}"]`); if (el) el.textContent = v || ''; };
+  try {
+    const open = openItems().open.length;
+    set('subjects', open ? String(open) : '');
+    const ne = nextExam();
+    const d = ne ? S.diffDays(today(), ne.on_date) : null;
+    set('exams', d == null ? '' : d === 0 ? 'heute' : `${d} T.`);
+    const n = unreadCount();
+    set('inbox', n ? String(n) : '');
+  } catch { /* egal */ }
 }
 
 // Zahl am App-Symbol: standardmäßig ungelesene Mitteilungen (wie bei Mail & Co.)
@@ -104,19 +164,31 @@ function openInbox() {
   pages[pages.length - 1].inbox = true;
 }
 
+function clearPages() {
+  pages.splice(0).forEach((p) => { p.el.classList.remove('in'); p.el.style.pointerEvents = 'none'; setTimeout(() => p.el.remove(), 400); });
+}
+
 function go(tab, { fromTab = false } = {}) {
-  pages.splice(0).forEach((p) => p.el.remove());
-  if (fromTab && tab === ui.tab) {
+  const hadPages = pages.length > 0;
+  clearPages();
+  if (fromTab && tab === ui.tab && !hadPages) {
     // erneut tippen: nach oben bzw. zurück zu heute
     if (main.scrollTop > 0) { main.scrollTo({ top: 0, behavior: 'smooth' }); return; }
-    if (tab === 'day') ui.day = today();
-    if (tab === 'week') ui.weekMon = S.mondayOf(today());
+    if (tab === 'day') setDay(today());
+    if (tab === 'week') setWeek(S.mondayOf(today()));
   }
   const changed = tab !== ui.tab;
   const apply = () => { if (changed) main.scrollTop = 0; ui.tab = tab; renderMain(); if (changed) playEnter(main); };
   if (changed && document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches) document.startViewTransition(apply);
   else apply();
 }
+
+// Tag / Woche wechseln – merkt sich die Richtung für die Gleit-Animation
+function setDay(d) { slideDir = Math.sign(S.diffDays(ui.day, d)); ui.day = d; }
+function setWeek(mon) { slideDir = Math.sign(S.diffDays(ui.weekMon, mon)); ui.weekMon = mon; }
+function shiftDay(dir, days = 1) { setDay(S.addDays(ui.day, dir * days)); renderMain(); }
+function shiftWeek(dir) { setWeek(S.addDays(ui.weekMon, dir * 7)); renderMain(); }
+function goToday() { setDay(today()); setWeek(S.mondayOf(today())); renderMain(); }
 
 // Großer Titel rutscht beim Scrollen in die Leiste
 function updateScrolled(el) { el.classList.toggle('scrolled', el.scrollTop > 38); }
@@ -135,22 +207,32 @@ function pushPage(renderFn) {
   el.addEventListener('keydown', onKey);
   bindScroll(el);
   bindEdgeSwipe(el);
+  bindWheelSwipe(el, (dir) => { if (dir < 0 && pages[pages.length - 1] === p) popPage(); }, () => pages[pages.length - 1] === p);
   requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('in')));
+  return p;
 }
 function popPage() {
   const p = pages.pop();
   if (!p) return;
   p.el.classList.remove('in');
   setTimeout(() => p.el.remove(), 450);
+  syncNav();
+}
+function openSettingsPage() {
+  if (pages.some((p) => p.settings)) return;
+  pushPage((el, rr) => renderSettings(el, rr)).settings = true;
+  syncNav();
 }
 
 Object.assign(nav, {
   go, render: scheduleRender, pushPage, popPage,
-  openSettings: () => pushPage((el, rr) => renderSettings(el, rr)),
+  openSettings: openSettingsPage,
+  openReminders: () => pushPage((el, rr) => renderReminders(el, rr)),
   openTimetable: () => go('week'), closeTimetable: () => {},
 });
 
 // ---------------- Aktionen ----------------
+let flashKey = null;
 function toggleDone(key) {
   const [sid, date] = key.split('|');
   const sr = store.data.series.find((s) => s.id === sid);
@@ -158,11 +240,79 @@ function toggleDone(key) {
   const o = S.makeOcc(idx(), sr, date);
   const prev = o.progress;
   const next = prev >= 100 ? 0 : 100;
+  if (next === 100) flashKey = key;
   patchOcc(o, { progress: next });
   haptic();
   toast(next === 100 ? `${o.subject.name}: erledigt` : `${o.subject.name}: wieder offen`, {
     action: { label: 'Widerrufen', fn: () => patchOcc(S.makeOcc(idx(), sr, date), { progress: prev }) },
   });
+}
+
+/** Neues Fach anlegen und gleich den ersten Termin dazu eintragen (ein Fach ohne Termine taucht nirgends auf). */
+function newSubjectFlow() {
+  openSubject(null, undefined, (sub) => { toast('Fach angelegt – wann findet es statt?'); openSeries(null, { subject_id: sub.id }); });
+}
+
+/** „Neu“: Termin, einmaliger Termin, Fach, Prüfung – von überall erreichbar. */
+function newMenu(anchor, viaKey = false) {
+  const day = ui.tab === 'day' && !pages.length ? ui.day : today();
+  popMenu(anchor, [
+    { header: 'Neu' },
+    { label: 'Termin im Stundenplan', icon: 'repeat', fn: () => openSeries(null) },
+    { label: 'Einmaliger Termin', icon: 'cal', fn: () => openSeries(null, { once_on: day }) },
+    { label: 'Fach', icon: 'book', fn: newSubjectFlow },
+    { label: 'Prüfung oder Frist', icon: 'cap', fn: () => openExam(null) },
+  ], { focus: viaKey });
+}
+
+/** Rechtsklick auf einen Termin: die häufigsten Handgriffe ohne Umweg. */
+function occMenu(key, point) {
+  const [sid, date] = key.split('|');
+  const sr = store.data.series.find((s) => s.id === sid);
+  if (!sr) return;
+  const o = S.makeOcc(idx(), sr, date);
+  popMenu(point, [
+    { header: `${o.subject?.name || 'Termin'} · ${o.starts}` },
+    ...(o.cancelled ? [] : [{ label: o.progress >= 100 ? 'Wieder offen' : 'Erledigt', icon: o.progress >= 100 ? 'undo' : 'check', fn: () => toggleDone(key) }]),
+    { label: 'Öffnen', icon: 'pencil', fn: () => openOcc(key) },
+    'sep',
+    { label: o.mandatory ? 'Kein Pflichttermin' : 'Pflichttermin', icon: 'bell', fn: () => patchOcc(S.makeOcc(idx(), sr, date), { mandatory: !o.mandatory === !!sr.mandatory ? null : !o.mandatory }) },
+    { label: o.cancelled ? 'Findet doch statt' : 'Fällt aus', icon: 'calX', fn: () => patchOcc(S.makeOcc(idx(), sr, date), { cancelled: !o.cancelled }) },
+    'sep',
+    { label: 'Terminreihe bearbeiten', icon: 'repeat', fn: () => openSeries(store.data.series.find((s) => s.id === sid)) },
+    ...(o.subject ? [{ label: 'Zum Fach', icon: 'book', fn: () => pushPage((el) => renderSubjectPage(el, o.subject.id)) }] : []),
+  ]);
+}
+
+const searchApi = {
+  go: (tab) => go(tab),
+  day: (d) => { setDay(d); if (ui.tab !== 'day' || pages.length) go('day'); else renderMain(); },
+  subject: (id) => { if (twoColQ.matches) { ui.subjectSel = id; go('subjects'); renderMain(); } else pushPage((el) => renderSubjectPage(el, id)); },
+  exam: (id) => openExam(store.data.exams.find((x) => x.id === id)),
+  occ: (key) => openOcc(key),
+  act: (name) => runAct(name),
+};
+
+function openSemMap() {
+  openSemesterMap((mon) => { setWeek(mon); if (ui.tab !== 'week' || pages.length) go('week'); else renderMain(); });
+}
+
+/** Aktionen ohne zugehörigen Knopf (Suche, Tastatur). */
+function runAct(name) {
+  switch (name) {
+    case 'newSeries': openSeries(null); break;
+    case 'newSubject': newSubjectFlow(); break;
+    case 'newExam': openExam(null); break;
+    case 'backlog': pushPage((el) => renderBacklog(el)); break;
+    case 'editTT': pushPage((el) => renderTTEditor(el)); break;
+    case 'semMap': openSemMap(); break;
+    case 'settings': nav.openSettings(); break;
+    case 'reminders': nav.openReminders(); break;
+    case 'shortcuts': openShortcuts(); break;
+    case 'themeDark': setTheme('dark'); toast('Dunkle Darstellung'); break;
+    case 'themeLight': setTheme('light'); toast('Helle Darstellung'); break;
+    default:
+  }
 }
 
 async function onAction(e) {
@@ -172,14 +322,21 @@ async function onAction(e) {
   switch (act) {
     case 'occ': openOcc(b.dataset.key); break;
     case 'done': e.stopPropagation(); toggleDone(b.dataset.key); break;
-    case 'day': ui.day = b.dataset.d; if (ui.tab !== 'day' || pages.length) go('day'); else renderMain(); break;
+    case 'day': setDay(b.dataset.d); if (ui.tab !== 'day' || pages.length) go('day'); else renderMain(); break;
     case 'tab': go(b.dataset.tab); break;
-    case 'wk': ui.weekMon = b.dataset.d === '0' ? S.mondayOf(today()) : S.addDays(ui.weekMon, Number(b.dataset.d)); renderMain(); break;
+    case 'wk': if (b.dataset.d === '0') setWeek(S.mondayOf(today())); else setWeek(S.addDays(ui.weekMon, Number(b.dataset.d))); renderMain(); break;
+    case 'slot': if (finePointer()) openSeries(null, { weekday: Number(b.dataset.wd), starts_at: b.dataset.t, ends_at: S.minToHHMM(Math.min(23 * 60 + 59, S.toMin(b.dataset.t) + 90)) }); break;
     case 'togglePast': ui.showPast = !ui.showPast; renderMain(); break;
-    case 'settings': nav.openSettings(); break;
+    case 'new': newMenu(b); break;
+    case 'search': openSearch(searchApi); break;
+    case 'shortcuts': openShortcuts(); break;
+    case 'settings': openSettingsPage(); break;
+    case 'reminders': nav.openReminders(); break;
     case 'inbox': openInbox(); break;
     case 'pflicht': pushPage((el) => renderPflicht(el)); break;
-    case 'semMap': openSemesterMap((mon) => { ui.weekMon = mon; if (ui.tab !== 'week' || pages.length) go('week'); else renderMain(); }); break;
+    case 'semMap': openSemMap(); break;
+    case 'setupHide': try { localStorage.setItem('sl.setup.hide', '1'); } catch { /* egal */ } renderMain(); break;
+    case 'firstOcc': { const o = openItems().open[0]; if (o) openOcc(o.key); else toast('Sobald ein Termin stattgefunden hat, kannst du ihn hier eintragen.'); break; }
     case 'openNotif': {
       if (b.closest('.nrow-wrap')?.dataset.swiped) break;
       const wrap = b.closest('.nrow-wrap');
@@ -206,11 +363,11 @@ async function onAction(e) {
     case 'toExams': go('exams'); break;
     case 'toPlan': document.getElementById('plan')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); break;
     case 'subject':
-      if (ui.tab === 'subjects' && !pages.length && matchMedia('(min-width: 900px), (min-width: 760px) and (orientation: landscape)').matches) { ui.subjectSel = b.dataset.id; haptic(); renderMain(); }
+      if (ui.tab === 'subjects' && !pages.length && twoColQ.matches) { ui.subjectSel = b.dataset.id; haptic(); renderMain(); }
       else pushPage((el) => renderSubjectPage(el, b.dataset.id));
       break;
     case 'editSubject': openSubject(store.data.subjects.find((s) => s.id === b.dataset.id)); break;
-    case 'newSubject': openSubject(null); break;
+    case 'newSubject': newSubjectFlow(); break;
     case 'editSeries': openSeries(store.data.series.find((s) => s.id === b.dataset.id)); break;
     case 'newSeries': openSeries(null, { subject_id: b.dataset.subject }); break;
     case 'exam': openExam(store.data.exams.find((x) => x.id === b.dataset.id)); break;
@@ -251,11 +408,9 @@ function bindSwipes(el) {
     x0 = null;
     if (Math.abs(dx) < 60 || Math.abs(dy) > Math.abs(dx) * 0.6 || Date.now() - t0 > 700) return;
     const dir = dx < 0 ? 1 : -1;
-    if (zone === 'day') ui.day = S.addDays(ui.day, dir);
-    else if (zone === 'week') ui.day = S.addDays(ui.day, dir * 7);
-    else if (zone === 'wk') ui.weekMon = S.addDays(ui.weekMon, dir * 7);
-    else return;
-    renderMain();
+    if (zone === 'day') shiftDay(dir);
+    else if (zone === 'week') shiftDay(dir, 7);
+    else if (zone === 'wk') shiftWeek(dir);
   }, { passive: true });
 }
 
@@ -297,6 +452,30 @@ function bindPullToRefresh(el) {
   });
 }
 
+/** Woche mit Maus/Trackpad: über einer freien Stelle erscheint „+ 10:15“ – ein Klick legt dort einen Termin an. */
+function bindSlotGhost(el) {
+  let cur = null;
+  const hide = () => { if (cur) { cur.hidden = true; cur = null; } };
+  el.addEventListener('mousemove', (e) => {
+    if (!finePointer()) return;
+    const body = e.target.classList?.contains('tt-body') ? e.target : e.target.classList?.contains('tt-ghost') ? e.target.parentElement : null;
+    if (!body || !body.dataset.wd) { hide(); return; }
+    const g = body.querySelector('.tt-ghost');
+    if (!g) return;
+    const ppm = Number(body.dataset.ppm), start = Number(body.dataset.start), end = Number(body.dataset.end);
+    const y = e.clientY - body.getBoundingClientRect().top;
+    const min = Math.max(start, Math.min(end - 45, start + Math.floor(y / ppm / 15) * 15));
+    if (cur && cur !== g) cur.hidden = true;
+    cur = g;
+    g.hidden = false;
+    g.style.top = (min - start) * ppm + 'px';
+    g.dataset.t = S.minToHHMM(min);
+    g.dataset.wd = body.dataset.wd;
+    g.firstElementChild.textContent = S.minToHHMM(min);
+  });
+  el.addEventListener('mouseleave', hide);
+}
+
 // ---------------- Sync-Anzeige ----------------
 let pill;
 onStatus((s) => {
@@ -325,8 +504,9 @@ setInterval(() => {
   if (document.visibilityState !== 'visible' || !store.user) return;
   const t = today();
   if (t !== lastDay) { if (ui.day === lastDay) ui.day = t; if (ui.weekMon === S.mondayOf(lastDay)) ui.weekMon = S.mondayOf(t); lastDay = t; }
-  if (Date.now() - store.lastLoad > 60000 && !openSheets()) load({ quiet: true });
-  else if (!openSheets()) scheduleRender();
+  const busy = openSheets() || menuOpen() || searchOpen();
+  if (Date.now() - store.lastLoad > 60000 && !busy) load({ quiet: true });
+  else if (!busy) scheduleRender();
 }, 60000);
 
 onChange(() => {
@@ -385,29 +565,45 @@ if ('serviceWorker' in navigator) {
   });
 }
 
-// iPad mit Tastatur: Kürzel
-document.addEventListener('keydown', (e) => {
-  if (mode !== 'main' || openSheets() || e.metaKey || e.ctrlKey || e.altKey || e.target.closest('input, textarea, select, [contenteditable]')) return;
+// ---------------- Tastatur (MacBook, iPad mit Tastatur) ----------------
+document.addEventListener('keydown', async (e) => {
+  if (mode !== 'main') return;
   const k = e.key;
+  // Suche geht immer – auch aus einem Eingabefeld heraus
+  if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && k.toLowerCase() === 'k') { e.preventDefault(); closeMenu(); if (!openSheets() || searchOpen()) openSearch(searchApi); return; }
+  if (e.defaultPrevented || searchOpen() || menuOpen() || openSheets() || e.metaKey || e.ctrlKey || e.altKey || e.target.closest?.('input, textarea, select, [contenteditable]')) return;
+  const top = !pages.length;
   if (k >= '1' && k <= '4') { go(TABS[Number(k) - 1][0]); e.preventDefault(); }
-  else if ((k === 'ArrowLeft' || k === 'ArrowRight') && !pages.length) {
+  else if ((k === 'ArrowLeft' || k === 'ArrowRight') && top) {
     const dir = k === 'ArrowRight' ? 1 : -1;
-    if (ui.tab === 'day') ui.day = S.addDays(ui.day, dir); else if (ui.tab === 'week') ui.weekMon = S.addDays(ui.weekMon, dir * 7); else return;
-    renderMain(); e.preventDefault();
-  } else if (k === 't' || k === 'T') { ui.day = today(); ui.weekMon = S.mondayOf(today()); renderMain(); }
+    if (ui.tab === 'day') shiftDay(dir); else if (ui.tab === 'week') shiftWeek(dir); else return;
+    e.preventDefault();
+  } else if (k === 't' || k === 'T') { if (!top) go(ui.tab); goToday(); }
+  else if (k === 'n' || k === 'N') { e.preventDefault(); const a = wideQ.matches ? sidebar.querySelector('[data-act="new"]') : (pages[pages.length - 1]?.el || main).querySelector('[data-act="new"]'); newMenu(a || { x: innerWidth / 2 - 110, y: 80 }, true); }
+  else if (k === '/') { e.preventDefault(); openSearch(searchApi); }
+  else if (k === '?') { e.preventDefault(); openShortcuts(); }
+  else if (k === ',') { e.preventDefault(); openSettingsPage(); }
+  else if (k === 'r' || k === 'R') { const ok = await load(); toast(ok ? 'Aktualisiert' : 'Keine Verbindung – du siehst den zuletzt geladenen Stand.', ok ? {} : { error: true }); }
   else if (k === 'Escape' && pages.length) popPage();
 });
 
-// Drehen / Fenstergröße (iPad Split View): Layout neu berechnen
+// Drehen / Fenstergröße (iPad Split View, Mac-Fenster): Layout neu berechnen
 let resizeT = 0, lastW = innerWidth;
 addEventListener('resize', () => {
   clearTimeout(resizeT);
   resizeT = setTimeout(() => { if (Math.abs(innerWidth - lastW) > 40) { lastW = innerWidth; scheduleRender(); } }, 150);
 });
+wideQ.addEventListener?.('change', scheduleRender);
+twoColQ.addEventListener?.('change', scheduleRender);
 
-// Kein Zoom (Pinch/Doppeltipp), kein Kontextmenü außerhalb von Eingabefeldern
+// Kein Zoom (Pinch/Doppeltipp); Rechtsklick auf einen Termin öffnet das Schnellmenü, sonst kein Kontextmenü außerhalb von Eingabefeldern
 ['gesturestart', 'gesturechange', 'gestureend'].forEach((ev) => document.addEventListener(ev, (e) => e.preventDefault(), { passive: false }));
-document.addEventListener('contextmenu', (e) => { if (!e.target.closest('input, textarea, [contenteditable]')) e.preventDefault(); });
+document.addEventListener('contextmenu', (e) => {
+  if (e.target.closest('input, textarea, [contenteditable]')) return;
+  e.preventDefault();
+  const occ = mode === 'main' && finePointer() && !openSheets() ? e.target.closest('[data-act="occ"][data-key]') : null;
+  if (occ) occMenu(occ.dataset.key, { x: e.clientX, y: e.clientY });
+});
 let lastTouchEnd = 0;
 document.addEventListener('touchend', (e) => { const n = Date.now(); if (n - lastTouchEnd < 300 && !e.target.closest('input, textarea, select, button, [data-act]')) e.preventDefault(); lastTouchEnd = n; }, { passive: false });
 

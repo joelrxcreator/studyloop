@@ -36,6 +36,7 @@ export function openOcc(key) {
     onClose: () => { clearTimeout(noteTimer); flushNote(); },
     render(b, api) {
       const draw = () => {
+        flushNote();
         o = get();
         const t = today();
         const future = !S.isDue(o, t, nowMin()) && !o.cancelled;
@@ -56,6 +57,7 @@ export function openOcc(key) {
             ${o.moved ? '<span class="chip amber">Verlegt</span>' : ''}${o.overlaps ? '<span class="chip amber">Überschneidet sich</span>' : ''}${future ? '<span class="chip">Kommt noch</span>' : ''}</div>` : ''}
 
           <div ${o.cancelled ? 'hidden' : ''}>
+            <button class="btn ${o.progress >= 100 ? 'done' : 'primary'}" data-donebtn style="margin-top:16px">${o.progress >= 100 ? icon('check') + 'Erledigt' : 'Als erledigt markieren'}</button>
             <div class="gh">Bearbeitet<b data-pct class="num" style="font-family:var(--round);font-size:1.18rem;color:var(--label);text-transform:none">${o.progress} %</b></div>
             <div class="group"><div class="cell" style="padding:2px 16px"><input type="range" class="range" min="0" max="100" step="5" value="${o.progress}" style="--p:${o.progress}%" data-range aria-label="Fortschritt in Prozent"></div></div>
             <div class="gh">Sicherheit<span data-starhint style="text-transform:none">${hints[o.stars || 0]}</span></div>
@@ -97,8 +99,11 @@ export function openOcc(key) {
           if (!save && Number(v) % 25 === 0) haptic();
           if (save && Number(v) !== get().progress) { patchOcc(get(), { progress: Number(v) }); haptic(); }
         };
-        range.addEventListener('input', () => setVal(range.value, false));
-        range.addEventListener('change', () => setVal(range.value, true));
+        const doneBtn = b.querySelector('[data-donebtn]');
+        const paintDone = (v) => { const d = Number(v) >= 100; doneBtn.className = 'btn ' + (d ? 'done' : 'primary'); doneBtn.innerHTML = d ? icon('check') + 'Erledigt' : 'Als erledigt markieren'; };
+        doneBtn.addEventListener('click', () => { const v = get().progress >= 100 ? 0 : 100; setVal(v, true); paintDone(v); });
+        range.addEventListener('input', () => { setVal(range.value, false); paintDone(range.value); });
+        range.addEventListener('change', () => { setVal(range.value, true); paintDone(range.value); });
         b.querySelectorAll('[data-quick]').forEach((x) => x.addEventListener('click', () => setVal(x.dataset.quick, true)));
         b.querySelectorAll('[data-star]').forEach((x) => x.addEventListener('click', () => {
           const n = Number(x.dataset.star);
@@ -117,7 +122,7 @@ export function openOcc(key) {
           draw();
           if (v) {
             const ps = pushState();
-            if (ps.permission !== 'granted') toast('Mitteilungen sind auf diesem Gerät noch aus.', { action: { label: 'Einschalten', fn: () => { api.close(); nav.openSettings(); } } });
+            if (ps.permission !== 'granted') toast('Mitteilungen sind auf diesem Gerät noch aus.', { action: { label: 'Einschalten', fn: () => { api.close(); nav.openReminders(); } } });
             else toast('Du wirst vorher erinnert.');
           }
         });
@@ -147,9 +152,9 @@ export function openSeries(existing, preset = {}) {
   if (!subs.length) { openSubject(null, sem.id, (sub) => openSeries(null, { subject_id: sub.id })); return; }
   const hasParity = (sem.weeks || []).some((w) => w.p);
   const v = existing ? { ...existing } : {
-    subject_id: preset.subject_id || subs[0].id, kind: 'lecture', weekday: preset.weekday || 1, starts_at: '08:15', ends_at: '09:45',
+    subject_id: preset.subject_id || subs[0].id, kind: 'lecture', weekday: preset.weekday || S.weekday(preset.once_on || today()) || 1, starts_at: preset.starts_at || '08:15', ends_at: preset.ends_at || '09:45',
     weeks_rule: 'all', custom_weeks: [], every_week: false, mandatory: false, room: '', lecturer: '', group_label: '', note: '',
-    valid_from: null, valid_until: null, once_on: null,
+    valid_from: null, valid_until: null, once_on: preset.once_on || null,
   };
   v.starts_at = S.hhmm(v.starts_at); v.ends_at = S.hhmm(v.ends_at);
   let mode = v.once_on ? 'once' : 'weekly';
