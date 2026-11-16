@@ -266,12 +266,14 @@ export function popMenu(anchor, items, { focus = false } = {}) {
       if (openMenu !== api) return;
       openMenu = null;
       wrap.classList.remove('open');
+      wrap.style.pointerEvents = 'none';
+      if (wrap.contains(document.activeElement)) document.activeElement.blur(); // sonst fängt das ausblendende Menü noch Tasten ab
       removeEventListener('resize', api.close);
       setTimeout(() => wrap.remove(), 160);
     },
   };
   openMenu = api;
-  wrap.addEventListener('pointerdown', (e) => { if (e.target === wrap) { e.preventDefault(); api.close(); } });
+  wrap.addEventListener('click', (e) => { if (e.target === wrap) api.close(); }); // erst beim Loslassen – so landet der Tipp nicht auf dem Element darunter
   wrap.addEventListener('contextmenu', (e) => { e.preventDefault(); if (e.target === wrap) api.close(); });
   wrap.addEventListener('wheel', () => api.close(), { passive: true });
   box.addEventListener('click', (e) => {
@@ -281,6 +283,7 @@ export function popMenu(anchor, items, { focus = false } = {}) {
     items[Number(b.dataset.i)].fn?.();
   });
   wrap.addEventListener('keydown', (e) => {
+    if (openMenu !== api) return;
     const i = btns.indexOf(document.activeElement);
     if (e.key === 'ArrowDown') { e.preventDefault(); btns[(i + 1) % btns.length].focus(); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); btns[(i - 1 + btns.length) % btns.length].focus(); }

@@ -438,7 +438,8 @@ export function renderTTEditor(el) {
         <button class="row" data-act="newSeries" data-subject="${s.id}"><span class="main"><span class="t" style="color:var(--accent)">Termin hinzufügen</span></span></button>
       </div>`;
     }).join('')}
-    <div class="list" style="margin-top:22px"><button class="row" data-act="newSubject"><span class="main"><span class="t" style="color:var(--accent)">Neues Fach hinzufügen</span></span></button></div>
+    ${subs.length ? `<div class="list" style="margin-top:22px"><button class="row" data-act="newSubject"><span class="main"><span class="t" style="color:var(--accent)">Neues Fach hinzufügen</span></span></button></div>`
+    : `<div class="empty">${icon('book')}<h3>Fang mit einem Fach an</h3><p>Leg ein Fach an, zum Beispiel „Mathe 1“. Danach trägst du ein, wann es stattfindet – einmal, das gilt dann für jede Woche.</p><button class="btn small primary" data-act="newSubject">Erstes Fach anlegen</button></div>`}
   </div>`;
 }
 

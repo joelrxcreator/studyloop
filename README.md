@@ -8,13 +8,16 @@ Lern-Cockpit pro Fach, täglicher Lernplan bis zur Prüfung, Prüfungs-Countdown
 | Teil | Ort |
 | --- | --- |
 | App (reines HTML/CSS/JS, kein Build) | `index.html`, `css/`, `js/`, `icons/`, `sw.js`, `manifest.webmanifest` |
+| Gerüst, Navigation, Gesten, Tastatur | `js/app.js` (Handy & Desktop), `js/desk.js` (Suche, Trackpad, Kürzel) |
 | Kernlogik (Wochen, Termine, Statistik, Erinnerungen) | `js/schedule.js` – identische Kopie in `supabase/functions/reminders/` |
 | Datenbank (Supabase, RLS pro Konto) | `supabase/migrations/` |
 | Server-Funktion (Web Push alle 5 min, Test, Konto löschen) | `supabase/functions/reminders/` |
 | Vorlagen (HBRS WiSe 26/27, ET1-EK3 Gr. B) | `js/presets.js` |
 
-- **Design (v3 „Ruhig“):** eine Akzentfarbe (Indigo), flache Karten mit Haarlinie, System-Schrift, normale Tab-Leiste unten.
-  Fachfarben nur als Balken/Tönung. Alle Farben als Tokens in `css/app.css` (hell/dunkel, auch per `data-theme`).
+- **Design (v4):** eine Akzentfarbe (Indigo), ruhige Karten mit Haarlinie, System-Schrift. Alle Farben als Tokens in `css/app.css`
+  (hell/dunkel, auch per `data-theme`). Handy: Tab-Leiste unten. Ab 900 px (iPad quer, MacBook): Seitenleiste.
+- **MacBook & Tastatur (`js/desk.js`):** Zwei-Finger-Wischen wechselt Tag/Woche und geht auf Unterseiten zurück, Suche mit ⌘K oder `/`,
+  Tastenkürzel (`?` zeigt alle), Rechtsklick-Menü auf Terminen, Klick auf eine freie Stelle in der Woche legt dort einen Termin an.
 - **Hosting:** GitHub Pages (Branch-Root). Supabase-Projekt `studyloop` (eu-central-1).
 - **Datenmodell:** Terminreihen (`series`) erzeugen die einzelnen Termine; Fortschritt/Sterne/Notiz/Pflicht/Ausfall
   liegen pro Datum in `occurrences`. Semesterwochen (Vorlesung dunkel/hell, Projekt, frei, Prüfungen) stehen im Semester.

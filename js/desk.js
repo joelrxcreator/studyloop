@@ -144,11 +144,14 @@ export function openSearch(api) {
       if (!palette) return;
       palette = null;
       wrap.classList.remove('open');
+      wrap.style.pointerEvents = 'none';
+      input.blur();
       setTimeout(() => wrap.remove(), 180);
     },
   };
   input.addEventListener('input', () => { sel = 0; draw(); });
   wrap.addEventListener('keydown', (e) => {
+    if (!palette) return;
     if (e.key === 'ArrowDown') { e.preventDefault(); move(1); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
     else if (e.key === 'Enter') { e.preventDefault(); run(sel); }

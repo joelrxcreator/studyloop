@@ -474,13 +474,16 @@ await test('Mitteilungszentrale: Glocke, gelesen, Zahl am App-Symbol, Wischen zu
   });
   await page.reload();
   await page.waitForSelector('.occ');
+  // Die Zahl am App-Symbol gibt es nur mit erlaubten Mitteilungen – manche Test-Browser verweigern sie grundsätzlich
+  const granted = await page.evaluate(() => Notification.permission === 'granted');
+  const badge = (n) => (granted ? page.waitForFunction((x) => window.__badge === x, n) : Promise.resolve());
   const uid = mock.users.get('joel@example.org').id;
   // Server verschickt drei Erinnerungen → kommen live in der App an
   mock.addNotification(uid, { key: 'o|a|2026-10-14|180', title: 'Werkstoffe · Vorlesung', body: 'Pflichttermin in 3 Std. um 13:30 · B120', url: './#day/2026-10-14', created_at: '2026-10-14T07:30:00Z' });
   mock.addNotification(uid, { key: 'e|b|start', title: 'Prüfungsanmeldung: Mathe 1', body: 'Frist endet morgen', url: './#exams', created_at: '2026-10-13T16:00:00Z' });
   mock.addNotification(uid, { key: 'test|1', title: 'Studyloop', body: 'Test-Mitteilung – so kommen deine Erinnerungen an.', url: './', created_at: '2026-10-14T08:10:00Z' });
   await page.waitForFunction(() => document.querySelector('.bell .nb')?.textContent === '3', null, { timeout: 4000 });
-  await page.waitForFunction(() => window.__badge === 3);
+  await badge(3);
   await shot(page, '20-glocke');
   await page.locator('#main [data-act="inbox"]').click();
   await page.waitForSelector('.page.in .nrow');
@@ -492,7 +495,7 @@ await test('Mitteilungszentrale: Glocke, gelesen, Zahl am App-Symbol, Wischen zu
   // Öffnen = gelesen → überall gespeichert, Zahl am App-Symbol weg
   await page.waitForTimeout(600);
   assert.ok(mock.db.notifications.every((n) => n.read_at), 'alle gelesen gespeichert');
-  await page.waitForFunction(() => window.__badge === 0);
+  await badge(0);
   // nach links wischen → löschen
   const row = page.locator('.page .nrow').first();
   const bb = await row.boundingBox();

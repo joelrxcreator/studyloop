@@ -884,3 +884,12 @@ kbd { font-family: var(--font); font-size: .68rem; font-weight: 600; line-height
 
 /* Eingabefelder zeigen den Fokus über ihren eigenen Rahmen (kein zweiter Umriss) */
 input:focus-visible, select:focus-visible, textarea:focus-visible { outline: none; }
+
+/* Willkommen & Einrichtung am großen Bildschirm: Inhalt und Knöpfe bleiben beisammen */
+@media (min-width: 700px) and (min-height: 700px) {
+  .auth { justify-content: center; }
+  .auth .grow { flex: 0 0 28px; }
+}
+
+/* Ohne Maus/Tastatur (iPad) sind Tastenkürzel-Hinweise nur Ballast */
+@media (hover: none) { .sidebar kbd { display: none; } .sidebar [data-act="shortcuts"] { display: none; } }
